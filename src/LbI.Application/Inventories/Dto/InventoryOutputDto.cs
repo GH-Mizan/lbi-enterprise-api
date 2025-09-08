@@ -1,0 +1,12 @@
+﻿namespace LbI.Inventories.Dto
+{
+    public class InventoryOutputDto
+    {
+        public int Id { get; set; }
+        public int ProductId { get; set; }
+        public string ProductName { get; set; }
+        public int StockPointId { get; set; }
+        public string StockPointName { get; set; }
+        public int Stock { get; set; }
+    }
+}
