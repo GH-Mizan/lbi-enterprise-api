@@ -272,7 +272,7 @@ namespace LbI.Sales
                 //DueBalance = s.DueAmount
             }).ToList();
 
-            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date && !x.Default).GroupBy(t => t.ReceiveDate.Date).Select(g => new
+            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date).GroupBy(t => t.ReceiveDate.Date).Select(g => new
             {
                 Date = g.Key,
                 DueCollection = g.Sum(x => x.TotalPaid)
@@ -450,6 +450,75 @@ namespace LbI.Sales
                 }
                 output.DueCollections = dueCollections;
                 output.DueCollection = dueCollections.Sum(s=> s.DueCollection);
+            }
+
+            return output;
+        }
+
+        public async Task<List<CustomerLedgerReportDto>> GetCustomerLedgerReportAsync(int customerId, DateTime startDate, DateTime endDate)
+        {
+            var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date)).OrderBy(x => x.Date).ToList();
+            if(!sales.Any())
+                return new List<CustomerLedgerReportDto>();
+
+            var saleIds = sales.Select(s=> s.Id).ToList();
+            var saleDetails = await _salesDetailsRepo.GetAllListAsync(x => saleIds.Contains(x.SaleId));
+            var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => saleIds.Contains(x.SalesId));
+            var products = await _productRepo.GetAllListAsync();
+
+            var output = new List<CustomerLedgerReportDto>();
+            decimal lastBalance = 0M;
+            foreach(var s in sales)
+            {
+                var thisSaleDetails = saleDetails.Where(x=> x.SaleId == s.Id).ToList();
+                var thisHistories = histories.Where(x => x.SalesId == s.Id && x.ReceiveDate.Date == s.Date.Date).ToList();
+                var ls = new CustomerLedgerReportDto()
+                {
+                    Date = s.Date,
+                    CreditTotal = s.NetAmount,
+                    DebitTotal = s.PaidAmount
+                };
+                ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
+
+                lastBalance = ls.Balance;
+
+                foreach (var product in products)
+                {
+                    var thisProductsSales = thisSaleDetails.Where(x => x.ProductId == product.Id && x.SaleId == s.Id).ToList();
+                    if (thisProductsSales.Count > 0)
+                    {
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            ls.MedicalOxygen9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            ls.MedicalOxygen1_36Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            ls.MedicalAir9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            ls.MedicalAir7Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            ls.Nitros30KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            ls.Nitros5KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            ls.Nitros3KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                    }
+                }
+
+                output.Add(ls);
             }
 
             return output;
