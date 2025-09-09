@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -8,8 +9,11 @@ namespace LbI.Enums
 {
     public enum ProductType
     {
-        Big = 1,
-        Small,
-        Medium
+        [Description("Medical Oxygen")]
+        MedicalOxygen = 1,
+        [Description("Medical Air")]
+        MedicalAir,
+        [Description("Nitrous")]
+        Nitrous
     }
 }

@@ -17,6 +17,7 @@ namespace LbI.Entities
         public decimal NetTotal { get; set; }
         public decimal TotalPaid { get; set; }
         public decimal Due { get; set; }
+        public bool Default { get; set; } //means first item while insert first time.
         public string Remarks { get; set; }
     }
 }

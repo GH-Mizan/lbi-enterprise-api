@@ -4,6 +4,7 @@ using LbI.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LbI.Migrations
 {
     [DbContext(typeof(LbIDbContext))]
-    partial class LbIDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250908172949_ProductSize_Modified")]
+    partial class ProductSize_Modified
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1839,9 +1842,6 @@ namespace LbI.Migrations
                     b.Property<long?>("CreatorUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<bool>("Default")
-                        .HasColumnType("bit");
-
                     b.Property<long?>("DeleterUserId")
                         .HasColumnType("bigint");
 
@@ -1908,9 +1908,6 @@ namespace LbI.Migrations
 
                     b.Property<long?>("CreatorUserId")
                         .HasColumnType("bigint");
-
-                    b.Property<bool>("Default")
-                        .HasColumnType("bit");
 
                     b.Property<long?>("DeleterUserId")
                         .HasColumnType("bigint");

@@ -107,7 +107,8 @@ namespace LbI.Purchases
                          Quantity = 0,
                          TotalPrice = 0,
                          //Stock = i.StockQty,
-                         TypeText = p.Type.DisplayName()
+                         TypeText = p.Type.DisplayName(),
+                         SizeText = p.Size.DisplayName()
                      }).ToList();
             if (stockPointId != null) 
             { 
@@ -182,6 +183,7 @@ namespace LbI.Purchases
 
                 await InsertPurchaseDetails(input.PurchaseDetails, id.Value, input.Purchase.StockPointId);
                 input.DuePayment.PurchaseId = id.Value;
+                input.DuePayment.Default = true;
                 await InsertDuePaymentAsync(input.DuePayment);
 
                 var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastPurchaseInvoiceNumber);

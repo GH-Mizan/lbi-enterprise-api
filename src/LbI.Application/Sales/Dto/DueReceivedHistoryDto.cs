@@ -17,6 +17,7 @@ namespace LbI.Sales.Dto
         public decimal NetTotal { get; set; }
         public decimal TotalPaid { get; set; }
         public decimal Due { get; set; }
+        public bool Default { get; set; }
         public string Remarks { get; set; }
     }
 }

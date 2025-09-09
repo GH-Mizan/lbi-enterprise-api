@@ -107,7 +107,8 @@ namespace LbI.Sales
                          Quantity = 0,
                          TotalPrice = 0,
                          //Stock = i.StockQty,
-                         TypeText = p.Type.DisplayName()
+                         TypeText = p.Type.DisplayName(),
+                         SizeText = p.Size.DisplayName()
                      }).ToList();
 
             if (stockPointId != null)
@@ -183,6 +184,7 @@ namespace LbI.Sales
 
                 await InsertSalesDetails(input.SalesDetails, id.Value, input.Sales.StockPointId);
                 input.DueReceived.SalesId = id.Value;
+                input.DueReceived.Default = true;
                 await InsertDueReceivedAsync(input.DueReceived);
 
                 var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastSalesInvoiceNumber);
@@ -270,10 +272,10 @@ namespace LbI.Sales
                 //DueBalance = s.DueAmount
             }).ToList();
 
-            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date).GroupBy(t => t.ReceiveDate.Date).Select(g => new
+            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date && !x.Default).GroupBy(t => t.ReceiveDate.Date).Select(g => new
             {
                 Date = g.Key,
-                Due = g.Sum(x => x.TotalPaid)
+                DueCollection = g.Sum(x => x.TotalPaid)
             }).ToList();
 
             var firstItem = true;
@@ -283,9 +285,9 @@ namespace LbI.Sales
 
             foreach (var item in output)
             {
-                var history = histories.Where(x => x.Date.Date == item.Date.Date).First();
+                var history = histories.Where(x => x.Date.Date == item.Date.Date).FirstOrDefault();
                 item.CurrentBalance += lastCurrentBalance;
-                item.DueCollection = history.Due;
+                item.DueCollection = history == null ? 0M : history.DueCollection;
                 item.TotalCollection = item.CashCollection + item.DueCollection;
                 item.DetuctedDue = item.DueCollection;
                 if (!firstItem)
@@ -303,6 +305,151 @@ namespace LbI.Sales
                 lastCurrentBalance = item.CurrentBalance;
                 lastCollectedBalance = item.CollectedBalance;
                 lastDueBalance = item.DueBalance;
+            }
+
+            return output;
+        }
+
+        public async Task<DailySalesReportDto> GetDailySalesReportAsync(DateTime date)
+        {
+            var sales = await _salesRepo.GetAllListAsync(f => f.Date.Date == date.Date);
+            if (sales.Count == 0)
+                return new DailySalesReportDto();
+
+            var products = await _productRepo.GetAllListAsync();
+            var salesIds = sales.Select(s => s.Id).ToList();
+            var salesDetails = (from sd in await _salesDetailsRepo.GetAllAsync()
+                                join p in await _productRepo.GetAllAsync() on sd.ProductId equals p.Id
+                                where salesIds.Contains(sd.SaleId)
+                                select new
+                                {
+                                    sd.SaleId,
+                                    sd.ProductId,
+                                    ProductType = p.Type,
+                                    p.Size,
+                                    sd.Quantity,
+                                    sd.TotalPrice
+                                }).ToList();
+
+            var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => x.ReceiveDate.Date == date.Date && !x.Default);
+            var dueCollections = new List<DailySalesReportDueCollectionDto>();
+            var details = new List<DailySalesReportDetailsDto>();
+            foreach (var s in sales)
+            {
+                var item = new DailySalesReportDetailsDto()
+                {
+                    CustomerId = s.CustomerId,
+                    CustomerName = s.CustomerName,
+                    InvoiceNo = s.InvoiceNumber,
+                    PaymentStatus = s.PaymentStatus,
+                    PaymentStatusText = s.PaymentStatus.DisplayName(),
+                    NetAmount = s.NetAmount,
+                    PaidAmount = s.PaidAmount,
+                    DueAmount = s.DueAmount
+                };
+
+                foreach (var product in products)
+                {
+                    var thisProductsSales = salesDetails.Where(x => x.ProductId == product.Id && x.SaleId == s.Id).ToList();
+                    if (thisProductsSales.Count > 0)
+                    {
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen9_8Qty = thisProductsSales.Sum(s=> s.Quantity);
+                        }
+                        else if(product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen1_36Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir7Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros30KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros5KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros3KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                    }
+                }
+                details.Add(item);
+
+                var thisHistories = histories.Where(x => x.SalesId == s.Id).ToList();
+                if(thisHistories.Count > 0)
+                {
+                    var dueCollection = new DailySalesReportDueCollectionDto()
+                    {
+                        CustomerId = s.CustomerId,
+                        CustomerName = s.CustomerName,
+                        DueCollection = thisHistories.Sum(s => s.TotalPaid)
+                    };
+                    dueCollections.Add(dueCollection);
+                }
+            }
+
+            var customerIds = details.Select(x => x.CustomerId).ToList();
+            if (customerIds.Count > customerIds.Distinct().Count()) { 
+                details = details.GroupBy(t => t.CustomerId).Select(g => new DailySalesReportDetailsDto()
+                {
+                    CustomerId = g.Key,
+                    CustomerName = g.First().CustomerName,
+                    InvoiceNo = g.First().InvoiceNo,
+                    PaymentStatus = g.First().PaymentStatus,
+                    PaymentStatusText = g.First().PaymentStatusText,
+                    NetAmount = g.Sum(x => x.NetAmount),
+                    PaidAmount = g.Sum(x => x.PaidAmount),
+                    DueAmount = g.Sum(x => x.DueAmount),
+                    MedicalOxygen9_8Qty = g.Sum(x => x.MedicalOxygen9_8Qty),
+                    MedicalOxygen1_36Qty = g.Sum(x => x.MedicalOxygen1_36Qty),
+                    MedicalAir9_8Qty = g.Sum(x => x.MedicalAir9_8Qty),
+                    MedicalAir7Qty = g.Sum(x => x.MedicalAir7Qty),
+                    Nitros30KgQty = g.Sum(x => x.Nitros30KgQty),
+                    Nitros5KgQty = g.Sum(x => x.Nitros5KgQty),
+                    Nitros3KgQty = g.Sum(x => x.Nitros3KgQty),
+                }).ToList();
+            }
+
+            var output = new DailySalesReportDto()
+            {
+                Details = details,
+                MedicalOxygen9_8TotalQty = details.Sum(s => s.MedicalOxygen9_8Qty),
+                MedicalOxygen1_36TotalQty = details.Sum(s => s.MedicalOxygen1_36Qty),
+                MedicalAir9_8TotalQty = details.Sum(s => s.MedicalAir9_8Qty),
+                MedicalAir7TotalQty = details.Sum(s => s.MedicalAir7Qty),
+                Nitros30KgTotalQty = details.Sum(s => s.Nitros30KgQty),
+                Nitros5KgTotalQty = details.Sum(s => s.Nitros5KgQty),
+                Nitros3KgTotalQty = details.Sum(s => s.Nitros3KgQty),
+                NetTotal = details.Sum(s => s.NetAmount),
+                CashCollection = details.Sum(s => s.PaidAmount),
+                Due = details.Sum(s => s.DueAmount),
+                //DueCollection
+            };
+
+            if (dueCollections.Count > 0)
+            {
+                var dueCollectionCustomerIds = dueCollections.Select(x => x.CustomerId).ToList();
+                if (dueCollectionCustomerIds.Count > dueCollectionCustomerIds.Distinct().Count())
+                {
+                    dueCollections = dueCollections.GroupBy(t => t.CustomerId).Select(g => new DailySalesReportDueCollectionDto()
+                    {
+                        CustomerId = g.Key,
+                        CustomerName = g.First().CustomerName,
+                        DueCollection = g.Sum(x => x.DueCollection)
+                    }).ToList();
+                }
+                output.DueCollections = dueCollections;
+                output.DueCollection = dueCollections.Sum(s=> s.DueCollection);
             }
 
             return output;

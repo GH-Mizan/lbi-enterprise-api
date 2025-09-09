@@ -40,13 +40,13 @@ namespace LbI.Products
             if (searchText != null)
             {
                 query = query.Where(x =>
-                x.Name.ToLower().Contains(searchText) ||
-                x.Size.ToLower().Contains(searchText));
+                x.Name.ToLower().Contains(searchText));
             }
 
             var products = query.OrderBy(o => o.Name).Skip(filter.Skip).Take(filter.Take).ToList();
             foreach (var p in products) {
                 p.TypeText = p.Type.DisplayName();
+                p.SizeText = p.Size.DisplayName();
             }
 
             return new PagedResultDto<ProductOutputDto>()
@@ -125,6 +125,7 @@ namespace LbI.Products
                 Type = s.Type,
                 TypeText = s.Type.DisplayName(),
                 Size = s.Size,
+                SizeText = s.Size.DisplayName(),
                 PurchasePrice = s.PurchasePrice,
                 SellPrice = s.SellPrice,
                 ActiveStatus = s.ActiveStatus
@@ -133,8 +134,11 @@ namespace LbI.Products
 
         public List<ComboboxItemDto> GetProductTypeSelectListAsync()
         {
-            var output = ((ProductType[])Enum.GetValues(typeof(ProductType))).Select(c => new ComboboxItemDto() { Value = ((int)c).ToString(), DisplayText = c.DisplayName() }).ToList();
-            return output;
+            return ((ProductType[])Enum.GetValues(typeof(ProductType))).Select(c => new ComboboxItemDto() { Value = ((int)c).ToString(), DisplayText = c.DisplayName() }).ToList();
+        }
+        public List<ComboboxItemDto> GetProductSizeSelectListAsync()
+        {
+            return ((ProductSize[])Enum.GetValues(typeof(ProductSize))).Select(c => new ComboboxItemDto() { Value = ((int)c).ToString(), DisplayText = c.DisplayName() }).ToList();
         }
     }
 }
