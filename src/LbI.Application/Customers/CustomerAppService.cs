@@ -42,6 +42,7 @@ namespace LbI.Customers
                              ContactNo = c.ContactNo,
                              Email = c.Email,
                              ActiveStatus = c.ActiveStatus,
+                             InitialDue = c.InitialDue,
                              Remarks = c.Remarks
                          }).AsQueryable();
 

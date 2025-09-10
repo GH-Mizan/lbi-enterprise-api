@@ -1,4 +1,5 @@
 ﻿using Abp.Domain.Entities.Auditing;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace LbI.Entities
 {
@@ -11,6 +12,8 @@ namespace LbI.Entities
         public string Email { get; set; }
         public bool ActiveStatus { get; set; }
         public string Remarks { get; set; }
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal InitialDue { get; set; }
 
     }
 }

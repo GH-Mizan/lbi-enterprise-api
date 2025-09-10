@@ -10,5 +10,6 @@
         public string Email { get; set; }
         public bool ActiveStatus { get; set; }
         public string Remarks { get; set; }
+        public decimal InitialDue { get; set; }
     }
 }

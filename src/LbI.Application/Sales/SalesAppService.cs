@@ -25,6 +25,7 @@ namespace LbI.Sales
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<LbiSetting> _lbiSettingsRepo;
         private readonly IRepository<Purchase> _purchaseRepo;
+        private readonly IRepository<Customer> _customerRepo;
         public SalesAppService(
             IRepository<Sale> salesRepo,
             IRepository<SaleDetail> salesDetailsRepo,
@@ -33,7 +34,8 @@ namespace LbI.Sales
             IRepository<StockPoint> vehicleRepo,
             IRepository<LbiSetting> lbiSettingsRepo,
             IRepository<Purchase> purchaseRepo,
-            IRepository<DueReceivedHistory> dueReceivedHistoryRepo
+            IRepository<DueReceivedHistory> dueReceivedHistoryRepo,
+            IRepository<Customer> customerRepo
             )
         {
             _salesRepo = salesRepo;
@@ -44,6 +46,7 @@ namespace LbI.Sales
             _lbiSettingsRepo = lbiSettingsRepo;
             _purchaseRepo = purchaseRepo;
             _dueReceivedHistoryRepo = dueReceivedHistoryRepo;
+            _customerRepo = customerRepo;
         }
 
         public async Task<PagedResultDto<SalesOutputDto>> GetPaginatedSalesAsync(SalesFilterDto filter)
@@ -275,7 +278,7 @@ namespace LbI.Sales
             var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date).GroupBy(t => t.ReceiveDate.Date).Select(g => new
             {
                 Date = g.Key,
-                DueCollection = g.Sum(x => x.TotalPaid)
+                DueCollection = g.Sum(t => t.TotalPaid)
             }).ToList();
 
             var firstItem = true;
@@ -407,16 +410,16 @@ namespace LbI.Sales
                     InvoiceNo = g.First().InvoiceNo,
                     PaymentStatus = g.First().PaymentStatus,
                     PaymentStatusText = g.First().PaymentStatusText,
-                    NetAmount = g.Sum(x => x.NetAmount),
-                    PaidAmount = g.Sum(x => x.PaidAmount),
-                    DueAmount = g.Sum(x => x.DueAmount),
-                    MedicalOxygen9_8Qty = g.Sum(x => x.MedicalOxygen9_8Qty),
-                    MedicalOxygen1_36Qty = g.Sum(x => x.MedicalOxygen1_36Qty),
-                    MedicalAir9_8Qty = g.Sum(x => x.MedicalAir9_8Qty),
-                    MedicalAir7Qty = g.Sum(x => x.MedicalAir7Qty),
-                    Nitros30KgQty = g.Sum(x => x.Nitros30KgQty),
-                    Nitros5KgQty = g.Sum(x => x.Nitros5KgQty),
-                    Nitros3KgQty = g.Sum(x => x.Nitros3KgQty),
+                    NetAmount = g.Sum(t => t.NetAmount),
+                    PaidAmount = g.Sum(t => t.PaidAmount),
+                    DueAmount = g.Sum(t => t.DueAmount),
+                    MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
+                    MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
+                    MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
+                    MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
+                    Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
+                    Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
+                    Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
                 }).ToList();
             }
 
@@ -445,7 +448,7 @@ namespace LbI.Sales
                     {
                         CustomerId = g.Key,
                         CustomerName = g.First().CustomerName,
-                        DueCollection = g.Sum(x => x.DueCollection)
+                        DueCollection = g.Sum(t => t.DueCollection)
                     }).ToList();
                 }
                 output.DueCollections = dueCollections;
@@ -586,6 +589,40 @@ namespace LbI.Sales
                 }
 
                 output.Add(due);
+            }
+            return output;
+        }
+
+        public async Task<List<CustomerOverallDueReportDto>> GetCustomersOverallDueReportAsync(DateTime startDate, DateTime endDate)
+        {
+            var output = (await _customerRepo.GetAllAsync()).Select(s => new CustomerOverallDueReportDto()
+            {
+                CustomerId = s.Id,
+                CustomerName = s.Name,
+                PreviousDue = s.InitialDue
+            }).ToList();
+
+            var prevDate = startDate.Date.AddDays(-1);
+            var prevDues = await _salesRepo.GetAllListAsync(x => x.Date.Date <= prevDate.Date && x.DueAmount > 0);
+            var sales = await _salesRepo.GetAllListAsync(x => x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date);
+
+            var count = 1;
+            foreach (var item in output) 
+            {
+                if(output.Count > 99)
+                    item.Serial = count.ToString().PadLeft(3, '0');
+                else
+                    item.Serial = count.ToString().PadLeft(2, '0');
+
+                var thisPrevDue = prevDues.Where(x => x.CustomerId == item.CustomerId).Sum(x => x.DueAmount);
+                var thisSales = sales.Where(x => x.CustomerId == item.CustomerId);
+
+                item.PreviousDue = item.PreviousDue + thisPrevDue;
+                item.CurrentSales = thisSales.Sum(x => x.NetAmount);
+                item.CurrentPaymnet = thisSales.Sum(x => x.PaidAmount);
+                item.CurrentDue = item.PreviousDue + item.CurrentSales - item.CurrentPaymnet;
+
+                count++;
             }
             return output;
         }
