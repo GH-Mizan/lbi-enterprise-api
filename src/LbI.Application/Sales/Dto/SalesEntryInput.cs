@@ -24,7 +24,7 @@ namespace LbI.Sales.Dto
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
-        public string SalesBy { get; set; }
+        public int SalesBy { get; set; }
         public int StockPointId { get; set; }
         public string Remarks { get; set; }
         public string PaymentReceiveHistory { get; set; }

@@ -6,7 +6,6 @@ using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
 using LbI.Sales.Dto;
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,7 +24,9 @@ namespace LbI.Sales
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<LbiSetting> _lbiSettingsRepo;
         private readonly IRepository<Purchase> _purchaseRepo;
+        private readonly IRepository<PurchaseDetail> _purchaseDetailsRepo;
         private readonly IRepository<Customer> _customerRepo;
+        private readonly IRepository<Employee> _employeeRepo;
         public SalesAppService(
             IRepository<Sale> salesRepo,
             IRepository<SaleDetail> salesDetailsRepo,
@@ -34,8 +35,10 @@ namespace LbI.Sales
             IRepository<StockPoint> vehicleRepo,
             IRepository<LbiSetting> lbiSettingsRepo,
             IRepository<Purchase> purchaseRepo,
+            IRepository<PurchaseDetail> purchaseDetailsRepo,
             IRepository<DueReceivedHistory> dueReceivedHistoryRepo,
-            IRepository<Customer> customerRepo
+            IRepository<Customer> customerRepo,
+            IRepository<Employee> employeeRepo
             )
         {
             _salesRepo = salesRepo;
@@ -45,8 +48,10 @@ namespace LbI.Sales
             _vehicleRepo = vehicleRepo;
             _lbiSettingsRepo = lbiSettingsRepo;
             _purchaseRepo = purchaseRepo;
+            _purchaseDetailsRepo = purchaseDetailsRepo;
             _dueReceivedHistoryRepo = dueReceivedHistoryRepo;
             _customerRepo = customerRepo;
+            _employeeRepo = employeeRepo;
         }
 
         public async Task<PagedResultDto<SalesOutputDto>> GetPaginatedSalesAsync(SalesFilterDto filter)
@@ -76,7 +81,10 @@ namespace LbI.Sales
             if (searchText != null)
             {
                 query = query.Where(x =>
-                x.InvoiceNumber.ToLower().Contains(searchText));
+                x.InvoiceNumber.ToLower().Contains(searchText) || 
+                x.CustomerName.ToLower().Contains(searchText) ||
+                x.StockPointName.ToLower().Contains(searchText)
+                );
             }
 
             var items = query.OrderByDescending(o => o.Id).Skip(filter.Skip).Take(filter.Take).ToList();
@@ -158,7 +166,7 @@ namespace LbI.Sales
         }
 
         [UnitOfWork]
-        public async Task CreateOrUpdateAsync(SalesEntryInput input)
+        public async Task<int> CreateOrUpdateAsync(SalesEntryInput input)
         {
             var id = input.Sales.Id;
             if (id.HasValue)
@@ -211,6 +219,8 @@ namespace LbI.Sales
                     }
                 }
             }
+
+            return id.Value;
         }
 
         [UnitOfWork]
@@ -234,20 +244,25 @@ namespace LbI.Sales
             return ObjectMapper.Map<List<DueReceivedHistoryDto>>(histories);
         }
 
+        [UnitOfWork]
         private async Task InsertSalesDetails(List<SalesDetailsEntryDto> salesDetailsInput, int salesId, int vehicleId)
         {
             var salesDetails = new List<SaleDetail>();
-            foreach (var pd in salesDetailsInput)
+            var purchaseDetails = await _purchaseDetailsRepo.GetAllListAsync(x=> salesDetailsInput.Select(s=> s.ProductId).ToList().Contains(x.ProductId));
+            foreach (var sd in salesDetailsInput)
             {
-                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == pd.ProductId && f.StockPointId == vehicleId);
+                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == sd.ProductId && f.StockPointId == vehicleId);
                 if (inventory != null)
                 {
-                    inventory.StockQty -= pd.Quantity;
+                    inventory.StockQty -= sd.Quantity;
                     await _inventoryRepo.UpdateAsync(inventory);
                 }
 
-                var detail = ObjectMapper.Map<SaleDetail>(pd);
+                var detail = ObjectMapper.Map<SaleDetail>(sd);
                 detail.SaleId = salesId;
+
+                var purchasePrice = purchaseDetails.Where(x => x.ProductId == sd.ProductId).First().UnitPrice;
+                detail.TotalProfit = sd.TotalPrice - (purchasePrice * sd.Quantity);
                 salesDetails.Add(detail);
             }
             await _salesDetailsRepo.InsertRangeAsync(salesDetails);
@@ -258,6 +273,8 @@ namespace LbI.Sales
             var dr = ObjectMapper.Map<DueReceivedHistory>(input);
             await _dueReceivedHistoryRepo.InsertAsync(dr);
         }
+
+        #region Reports
 
         public async Task<List<SalesCollectionDueReportDto>> GetSalesCollectionDueReportAsync(DateTime startDate, DateTime endDate)
         {
@@ -275,7 +292,16 @@ namespace LbI.Sales
                 //DueBalance = s.DueAmount
             }).ToList();
 
-            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date).GroupBy(t => t.ReceiveDate.Date).Select(g => new
+            output = output.GroupBy(t => t.Date.Date).Select(g => new SalesCollectionDueReportDto()
+            {
+                Date = g.Key,
+                TotalSales = g.Sum(t => t.TotalSales),
+                CurrentBalance = g.Sum(t => t.CurrentBalance),
+                CashCollection = g.Sum(t => t.CashCollection),
+                CurrenctDue = g.Sum(t => t.CurrenctDue),
+            }).ToList();
+
+            var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date >= startDate.Date && x.ReceiveDate.Date <= endDate.Date && !x.Default).GroupBy(t => t.ReceiveDate.Date).Select(g => new
             {
                 Date = g.Key,
                 DueCollection = g.Sum(t => t.TotalPaid)
@@ -310,6 +336,20 @@ namespace LbI.Sales
                 lastDueBalance = item.DueBalance;
             }
 
+            //output = output.GroupBy(t => t.Date.Date).Select(g => new SalesCollectionDueReportDto()
+            //{
+            //    Date = g.Key,
+            //    TotalSales = g.Sum(t=> t.TotalSales),
+            //    CurrentBalance = g.Sum(t => t.CurrentBalance),
+            //    CashCollection = g.Sum(t => t.CashCollection),
+            //    DueCollection = g.Sum(t => t.DueCollection),
+            //    TotalCollection = g.Sum(t => t.TotalCollection),
+            //    CollectedBalance = g.Sum(t => t.CollectedBalance),
+            //    CurrenctDue = g.Sum(t => t.CurrenctDue),
+            //    DetuctedDue = g.Sum(t => t.DetuctedDue),
+            //    DueBalance = g.Sum(t => t.DueBalance)
+            //}).ToList();
+
             return output;
         }
 
@@ -334,8 +374,24 @@ namespace LbI.Sales
                                     sd.TotalPrice
                                 }).ToList();
 
-            var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => x.ReceiveDate.Date == date.Date && !x.Default);
-            var dueCollections = new List<DailySalesReportDueCollectionDto>();
+            var histories = (from h in (await _dueReceivedHistoryRepo.GetAllAsync())
+                             .Where(x => x.ReceiveDate.Date == date.Date && !x.Default).GroupBy(t => t.SalesId)
+                             .Select(g => new
+                             {
+                                 SaleId = g.Key,
+                                 TotalPaid = g.Sum(s => s.TotalPaid)
+                             })
+                             join s in await _salesRepo.GetAllAsync() on h.SaleId equals s.Id
+                             join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
+                             select new
+                             {
+                                 h.SaleId,
+                                 s.CustomerId,
+                                 CustomerName = c.Name,
+                                 h.TotalPaid,
+                                 s.InvoiceNumber
+                             }).ToList();
+
             var details = new List<DailySalesReportDetailsDto>();
             foreach (var s in sales)
             {
@@ -387,18 +443,6 @@ namespace LbI.Sales
                     }
                 }
                 details.Add(item);
-
-                var thisHistories = histories.Where(x => x.SalesId == s.Id).ToList();
-                if(thisHistories.Count > 0)
-                {
-                    var dueCollection = new DailySalesReportDueCollectionDto()
-                    {
-                        CustomerId = s.CustomerId,
-                        CustomerName = s.CustomerName,
-                        DueCollection = thisHistories.Sum(s => s.TotalPaid)
-                    };
-                    dueCollections.Add(dueCollection);
-                }
             }
 
             var customerIds = details.Select(x => x.CustomerId).ToList();
@@ -423,6 +467,26 @@ namespace LbI.Sales
                 }).ToList();
             }
 
+            foreach (var h in histories)
+            {
+                var d = details.FirstOrDefault(f => f.CustomerId == h.CustomerId);
+                if(d != null)
+                {
+                    d.DueCollection = h.TotalPaid;
+                }
+                else
+                {
+                    var item = new DailySalesReportDetailsDto()
+                    {
+                        CustomerId = h.CustomerId,
+                        CustomerName = h.CustomerName,
+                        InvoiceNo = h.InvoiceNumber,
+                        DueCollection = h.TotalPaid
+                    };
+                    details.Add(item);
+                }
+            }
+
             var output = new DailySalesReportDto()
             {
                 Details = details,
@@ -435,25 +499,9 @@ namespace LbI.Sales
                 Nitros3KgTotalQty = details.Sum(s => s.Nitros3KgQty),
                 NetTotal = details.Sum(s => s.NetAmount),
                 CashCollection = details.Sum(s => s.PaidAmount),
+                DueCollection = details.Sum(s => s.DueCollection),
                 Due = details.Sum(s => s.DueAmount),
-                //DueCollection
             };
-
-            if (dueCollections.Count > 0)
-            {
-                var dueCollectionCustomerIds = dueCollections.Select(x => x.CustomerId).ToList();
-                if (dueCollectionCustomerIds.Count > dueCollectionCustomerIds.Distinct().Count())
-                {
-                    dueCollections = dueCollections.GroupBy(t => t.CustomerId).Select(g => new DailySalesReportDueCollectionDto()
-                    {
-                        CustomerId = g.Key,
-                        CustomerName = g.First().CustomerName,
-                        DueCollection = g.Sum(t => t.DueCollection)
-                    }).ToList();
-                }
-                output.DueCollections = dueCollections;
-                output.DueCollection = dueCollections.Sum(s=> s.DueCollection);
-            }
 
             return output;
         }
@@ -529,7 +577,7 @@ namespace LbI.Sales
 
         public async Task<List<CustomerDueReportDto>> GetCustomerDueReportAsync(int customerId, DateTime startDate, DateTime endDate)
         {
-            var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date)).OrderBy(x => x.Date).ToList();
+            var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date && x.DueAmount > 0)).OrderBy(x => x.Date).ToList();
             if (!sales.Any())
                 return new List<CustomerDueReportDto>();
 
@@ -626,5 +674,222 @@ namespace LbI.Sales
             }
             return output;
         }
+
+        public async Task<List<MonthlySalesRankingReportDto>> GetMonthlySalesRankingReportAsync(int month, int year)
+        {
+            var output = (await _customerRepo.GetAllAsync()).Select(s => new MonthlySalesRankingReportDto()
+            {
+                CustomerId = s.Id,
+                CustomerName = s.Name
+            }).ToList();
+
+            var sales = await _salesRepo.GetAllListAsync(x => x.Date.Year == year && x.Date.Month == month);
+            var salesDetails = await _salesDetailsRepo.GetAllListAsync(x => sales.Select(s => s.Id).ToList().Contains(x.SaleId));
+            var products = await _productRepo.GetAllListAsync();
+
+            foreach (var item in output)
+            {
+                var thisSaleIds = sales.Where(x => x.CustomerId == item.CustomerId).Select(s => s.Id).ToList();
+                var profits = salesDetails.Where(x => thisSaleIds.Contains(x.SaleId)).GroupBy(t => t.ProductId).Select(g => new
+                {
+                    ProductId = g.Key,
+                    Quantity = g.Sum(s => s.Quantity),
+                    Profit = g.Sum(s => s.TotalProfit)
+                }).ToList();
+
+                foreach (var product in products)
+                {
+                    var thisProfits = profits.Where(x => x.ProductId == product.Id).ToList();
+                    if (thisProfits.Count > 0)
+                    {
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen9_8Qty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen1_36Qty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir9_8Qty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir7Qty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros30KgQty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros5KgQty = thisProfits.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros3KgQty = thisProfits.Sum(s => s.Quantity);
+                        }
+                    }
+                }
+
+                item.Revenue = profits.Sum(s=> s.Profit);
+            }
+
+            return output.OrderByDescending(o=> o.Revenue).Select((s, index) => new MonthlySalesRankingReportDto()
+            {
+                Rank = index + 1,
+                CustomerId = s.CustomerId,
+                CustomerName = s.CustomerName,
+                Revenue = s.Revenue,
+                MedicalOxygen9_8Qty = s.MedicalOxygen9_8Qty,
+                MedicalOxygen1_36Qty = s.MedicalOxygen1_36Qty,
+                MedicalAir9_8Qty = s.MedicalAir9_8Qty,
+                MedicalAir7Qty = s.MedicalAir7Qty,
+                Nitros30KgQty = s.Nitros30KgQty,
+                Nitros5KgQty = s.Nitros5KgQty,
+                Nitros3KgQty = s.Nitros3KgQty,
+            }).ToList();
+        }
+
+
+        public async Task<SalesReceiptOutputDto> GetSalesReceiptAsync(int saleId)
+        {
+            var output = (from s in await _salesRepo.GetAllAsync()
+                          join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
+                          join e in await _employeeRepo.GetAllAsync() on s.SalesBy equals e.Id
+                          where s.Id == saleId
+                          select new SalesReceiptOutputDto()
+                          {
+                              Id = saleId,
+                              InvoiceNumber = s.InvoiceNumber,
+                              CustomerId = s.CustomerId,
+                              CustomerName = c.Name,
+                              Address = c.Address,
+                              Saler = e.Name,
+                              TotalAmount = s.NetAmount,
+                              TotalPaid = s.PaidAmount,
+                              TotalDue = s.DueAmount
+                          }).First();
+
+            var salesDetails = (from sd in await _salesDetailsRepo.GetAllAsync()
+                                join p in await _productRepo.GetAllAsync() on sd.ProductId equals p.Id
+                                where sd.SaleId == saleId
+                                select new SalesRecieptProductDto()
+                                {
+                                    ProductId = sd.ProductId,
+                                    Product = p.Name,
+                                    UnitPrice = sd.UnitPrice,
+                                    Qty = sd.Quantity,
+                                    Amount = sd.TotalPrice
+                                }).ToList();
+
+            output.Details = salesDetails;
+            output.PreviousDue = (await _salesRepo.GetAllAsync()).Where(s => s.Id != saleId && s.DueAmount > 0 && s.CustomerId == output.CustomerId).Sum(s => s.DueAmount);
+            output.OverallDue = output.PreviousDue + output.TotalDue;
+
+            return output;
+        }
+
+        public async Task<MonthlySalesInvoiceReportDto> GetMonthlySalesInvoiceReportAsync(int month, int year, int customerId)
+        {
+            var output = (await _customerRepo.GetAllAsync()).Where(x => x.Id == customerId).Select(s => new MonthlySalesInvoiceReportDto()
+            {
+                CustomerId = customerId,
+                CustomerName = s.Name,
+                Address = s.Address,
+                PrepareDate = DateTime.Now
+            }).First();
+
+            var sales = (await _salesRepo.GetAllAsync())
+                .Where(x => x.CustomerId == customerId && x.Date.Year == year && x.Date.Month == month)
+                .Select(s => new MonthlySalesInvoiceDetailsReportDto() 
+                {
+                    Id = s.Id,
+                    Date = s.Date.Date,
+                    Amount = s.NetAmount
+                }).ToList();
+
+            var salesIds = sales.Select(s => s.Id).ToList();
+            var salesDetails = (from sd in await _salesDetailsRepo.GetAllAsync()
+                                join p in await _productRepo.GetAllAsync() on sd.ProductId equals p.Id
+                                where salesIds.Contains(sd.SaleId)
+                                select new
+                                {
+                                    sd.SaleId,
+                                    sd.ProductId,
+                                    ProductType = p.Type,
+                                    p.Size,
+                                    sd.Quantity,
+                                    sd.TotalPrice
+                                }).ToList();
+
+            var products = await _productRepo.GetAllListAsync();
+            foreach(var s in sales)
+            {
+                foreach (var product in products)
+                {
+                    var thisProductsSales = salesDetails.Where(x => x.ProductId == product.Id && x.SaleId == s.Id).ToList();
+                    if (thisProductsSales.Count > 0)
+                    {
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            s.MedicalOxygen9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            s.MedicalOxygen1_36Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            s.MedicalAir9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            s.MedicalAir7Qty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            s.Nitros30KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            s.Nitros5KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            s.Nitros3KgQty = thisProductsSales.Sum(s => s.Quantity);
+                        }
+                    }
+                }
+            }
+
+            sales = sales.GroupBy(t => t.Date).Select(g => new MonthlySalesInvoiceDetailsReportDto()
+            {
+                Date = g.Key,
+                MedicalOxygen9_8Qty = g.Sum(s => s.MedicalOxygen9_8Qty),
+                MedicalOxygen1_36Qty = g.Sum(s => s.MedicalOxygen1_36Qty),
+                MedicalAir9_8Qty = g.Sum(s => s.MedicalAir9_8Qty),
+                MedicalAir7Qty = g.Sum(s => s.MedicalAir7Qty),
+                Nitros30KgQty = g.Sum(s => s.Nitros30KgQty),
+                Nitros5KgQty = g.Sum(s => s.Nitros5KgQty),
+                Nitros3KgQty = g.Sum(s => s.Nitros3KgQty),
+                Amount = g.Sum(s => s.Amount)
+            }).ToList();
+
+            output.Details = sales;
+            output.MedicalOxygen9_8TotalQty = sales.Sum(s => s.MedicalOxygen9_8Qty);
+            output.MedicalOxygen1_36TotalQty = sales.Sum(s => s.MedicalOxygen1_36Qty);
+            output.MedicalAir9_8TotalQty = sales.Sum(s => s.MedicalAir9_8Qty);
+            output.MedicalAir7TotalQty = sales.Sum(s => s.MedicalAir7Qty);
+            output.Nitros30KgTotalQty = sales.Sum(s => s.Nitros30KgQty);
+            output.Nitros5KgTotalQty = sales.Sum(s => s.Nitros5KgQty);
+            output.Nitros3KgTotalQty = sales.Sum(s => s.Nitros3KgQty);
+            output.TotalAmount = sales.Sum(s => s.Amount);
+
+            return output;
+        }
+
+        #endregion
     }
 }

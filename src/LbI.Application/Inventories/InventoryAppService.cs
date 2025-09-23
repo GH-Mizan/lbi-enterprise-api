@@ -4,6 +4,7 @@ using Abp.Domain.Uow;
 using Abp.UI;
 using LbI.Entities;
 using LbI.Inventories.Dto;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -29,20 +30,33 @@ namespace LbI.Inventories
 
         }
 
-        public async Task<List<InventoryOutputDto>> GetInventoriesAsync()
+        public async Task<List<StockQuantityOutputDto>> GetInventoriesAsync()
         {
-            var output = (from i in await _inventoryRepo.GetAllAsync()
-                          join sp in await _stockPointRepo.GetAllAsync() on i.StockPointId equals sp.Id
-                          select new InventoryOutputDto()
-                          {
-                              Id = i.Id,
-                              ProductId = i.ProductId,
-                              ProductName = i.ProductName,
-                              StockPointId = i.StockPointId,
-                              StockPointName = sp.Name,
-                              Stock = i.StockQty
-                          }).OrderBy(o=>o.StockPointId).ToList();
+            var output = (from i in (await _inventoryRepo.GetAllAsync()).GroupBy(t => t.StockPointId).Select(g => new
+                    {
+                        StockPointId = g.Key,
+                        Stock = g.Sum(s => s.StockQty)
+                    })
+                     join sp in await _stockPointRepo.GetAllAsync() on i.StockPointId equals sp.Id
+                     select new StockQuantityOutputDto()
+                     {
+                         StockPointId = i.StockPointId,
+                         StockPointName = sp.Name,
+                         Stock = i.Stock
+                     }).ToList();
             return output;
+        }
+
+        public async Task<List<StockWiseInventoryOutputDto>> GetInventoriesBreakpointAsync(int stockPointId)
+        {
+            return (from i in await _inventoryRepo.GetAllAsync()
+                    join p in await _productRepo.GetAllAsync() on i.ProductId equals p.Id
+                    where i.StockPointId == stockPointId
+                    select new StockWiseInventoryOutputDto()
+                    {
+                        ProductName = p.Name,
+                        Stock = i.StockQty
+                    }).ToList();
         }
 
         [UnitOfWork]

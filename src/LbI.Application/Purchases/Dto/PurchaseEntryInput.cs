@@ -25,7 +25,7 @@ namespace LbI.Purchases.Dto
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
-        public string PurchaseBy { get; set; }
+        public int PurchaseBy { get; set; }
         public int StockPointId { get; set; }
         public string Remarks { get; set; }
         public string PaymentHistory { get; set; }

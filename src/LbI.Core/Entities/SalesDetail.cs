@@ -13,6 +13,8 @@ namespace LbI.Entities
         public int Quantity { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
         public decimal TotalPrice { get; set; }
+        [Column(TypeName = "decimal(10, 2)")]
+        public decimal TotalProfit { get; set; }
         public string Remarks { get; set; }
     }
 }

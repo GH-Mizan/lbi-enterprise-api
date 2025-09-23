@@ -26,6 +26,7 @@ namespace LbI.Purchases
         private readonly IRepository<Product> _productRepo;
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<LbiSetting> _lbiSettingsRepo;
+        private readonly IRepository<Supplier> _supplierRepo;
         public PurchaseAppService(
             IRepository<Purchase> purchaseRepo,
             IRepository<PurchaseDetail> purchaseDetailsRepo,
@@ -33,7 +34,8 @@ namespace LbI.Purchases
             IRepository<Product> productRepo,
             IRepository<StockPoint> vehicleRepo,
             IRepository<LbiSetting> lbiSettingsRepo,
-            IRepository<DuePaymentHistory> duePaymentHistoryRepo
+            IRepository<DuePaymentHistory> duePaymentHistoryRepo,
+            IRepository<Supplier> supplierRepo
             )
         {
             _purchaseRepo = purchaseRepo;
@@ -43,6 +45,7 @@ namespace LbI.Purchases
             _vehicleRepo = vehicleRepo;
             _lbiSettingsRepo = lbiSettingsRepo;
             _duePaymentHistoryRepo = duePaymentHistoryRepo;
+            _supplierRepo = supplierRepo;
         }
 
         public async Task<PagedResultDto<PurchaseOutputDto>> GetPaginatedPurchasesAsync(PurchasesFilterDto filter)
@@ -72,7 +75,10 @@ namespace LbI.Purchases
             if (searchText != null)
             {
                 query = query.Where(x =>
-                x.InvoiceNumber.ToLower().Contains(searchText));
+                x.InvoiceNumber.ToLower().Contains(searchText) ||
+                x.SupplierName.ToLower().Contains(searchText) ||
+                x.StockPointName.ToLower().Contains(searchText)
+                );
             }
 
             var items = query.OrderByDescending(o => o.Id).Skip(filter.Skip).Take(filter.Take).ToList();
@@ -253,6 +259,162 @@ namespace LbI.Purchases
         {
             var dp = ObjectMapper.Map<DuePaymentHistory>(input);
             await _duePaymentHistoryRepo.InsertAsync(dp);
+        }
+
+        public async Task<DailyPurchaseReportDto> GetDailyPurchaseReportAsync(DateTime date)
+        {
+            var purchases = await _purchaseRepo.GetAllListAsync(f => f.Date.Date == date.Date);
+            if (purchases.Count == 0)
+                return new DailyPurchaseReportDto();
+
+            var products = await _productRepo.GetAllListAsync();
+            var purchaseIds = purchases.Select(s => s.Id).ToList();
+            var purchaseDetails = (from pd in await _purchaseDetailsRepo.GetAllAsync()
+                                join p in await _productRepo.GetAllAsync() on pd.ProductId equals p.Id
+                                where purchaseIds.Contains(pd.PurchaseId)
+                                select new
+                                {
+                                    pd.PurchaseId,
+                                    pd.ProductId,
+                                    ProductType = p.Type,
+                                    p.Size,
+                                    pd.Quantity,
+                                    pd.TotalPrice
+                                }).ToList();
+
+            //var histories = await _duePaymentHistoryRepo.GetAllListAsync(x => x.PaymentDate.Date == date.Date && !x.Default);
+            var histories = (from h in (await _duePaymentHistoryRepo.GetAllAsync())
+                             .Where(x => x.PaymentDate.Date == date.Date && !x.Default).GroupBy(t => t.PurchaseId)
+                             .Select(g => new
+                             {
+                                 PurchaseId = g.Key,
+                                 TotalPaid = g.Sum(s => s.TotalPaid)
+                             })
+                             join p in await _purchaseRepo.GetAllAsync() on h.PurchaseId equals p.Id
+                             join s in await _supplierRepo.GetAllAsync() on p.SupplierId equals s.Id
+                             select new
+                             {
+                                 h.PurchaseId,
+                                 p.SupplierId,
+                                 SupplierName = s.Name,
+                                 h.TotalPaid,
+                                 p.InvoiceNumber
+                             }).ToList();
+
+
+            var details = new List<DailyPurchaseReportDetailsDto>();
+            foreach (var p in purchases)
+            {
+                var item = new DailyPurchaseReportDetailsDto()
+                {
+                    SupplierId = p.SupplierId,
+                    SupplierName = p.SupplierName,
+                    InvoiceNo = p.InvoiceNumber,
+                    PaymentStatus = p.PaymentStatus,
+                    PaymentStatusText = p.PaymentStatus.DisplayName(),
+                    NetAmount = p.NetAmount,
+                    PaidAmount = p.PaidAmount,
+                    DueAmount = p.DueAmount
+                };
+
+                foreach (var product in products)
+                {
+                    var thisProductsPurchases = purchaseDetails.Where(x => x.ProductId == product.Id && x.PurchaseId == p.Id).ToList();
+                    if (thisProductsPurchases.Count > 0)
+                    {
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen9_8Qty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            item.MedicalOxygen1_36Qty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir9_8Qty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            item.MedicalAir7Qty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros30KgQty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros5KgQty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            item.Nitros3KgQty = thisProductsPurchases.Sum(s => s.Quantity);
+                        }
+                    }
+                }
+                details.Add(item);
+            }
+
+            var supplierIds = details.Select(x => x.SupplierId).ToList();
+            if (supplierIds.Count > supplierIds.Distinct().Count())
+            {
+                details = details.GroupBy(t => t.SupplierId).Select(g => new DailyPurchaseReportDetailsDto()
+                {
+                    SupplierId = g.Key,
+                    SupplierName = g.First().SupplierName,
+                    InvoiceNo = g.First().InvoiceNo,
+                    PaymentStatus = g.First().PaymentStatus,
+                    PaymentStatusText = g.First().PaymentStatusText,
+                    NetAmount = g.Sum(t => t.NetAmount),
+                    PaidAmount = g.Sum(t => t.PaidAmount),
+                    DueAmount = g.Sum(t => t.DueAmount),
+                    MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
+                    MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
+                    MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
+                    MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
+                    Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
+                    Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
+                    Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
+                }).ToList();
+            }
+
+            foreach (var h in histories)
+            {
+                var d = details.FirstOrDefault(f => f.SupplierId == h.SupplierId);
+                if (d != null)
+                {
+                    d.DuePayment = h.TotalPaid;
+                }
+                else
+                {
+                    var item = new DailyPurchaseReportDetailsDto()
+                    {
+                        SupplierId = h.SupplierId,
+                        SupplierName = h.SupplierName,
+                        InvoiceNo = h.InvoiceNumber,
+                        DuePayment = h.TotalPaid
+                    };
+                    details.Add(item);
+                }
+            }
+
+            var output = new DailyPurchaseReportDto()
+            {
+                Details = details,
+                MedicalOxygen9_8TotalQty = details.Sum(s => s.MedicalOxygen9_8Qty),
+                MedicalOxygen1_36TotalQty = details.Sum(s => s.MedicalOxygen1_36Qty),
+                MedicalAir9_8TotalQty = details.Sum(s => s.MedicalAir9_8Qty),
+                MedicalAir7TotalQty = details.Sum(s => s.MedicalAir7Qty),
+                Nitros30KgTotalQty = details.Sum(s => s.Nitros30KgQty),
+                Nitros5KgTotalQty = details.Sum(s => s.Nitros5KgQty),
+                Nitros3KgTotalQty = details.Sum(s => s.Nitros3KgQty),
+                NetTotal = details.Sum(s => s.NetAmount),
+                CashPayment = details.Sum(s => s.PaidAmount),
+                Due = details.Sum(s => s.DueAmount),
+                DuePayment = details.Sum(s => s.DuePayment),
+            };
+
+            return output;
         }
     }
 }

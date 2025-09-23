@@ -56,6 +56,7 @@ namespace LbI.Employees
                 x.DepartmentName.ToLower().Contains(searchText) ||
                 x.DesignationName.ToLower().Contains(searchText) ||
                 x.ContactNumber.ToLower().Contains(searchText) ||
+                x.Address.ToLower().Contains(searchText) ||
                 x.Remarks.ToLower().Contains(searchText));
             }
 
@@ -110,6 +111,15 @@ namespace LbI.Employees
             {
                 Value = s.Id.ToString(),
                 DisplayText = s.Title
+            }).ToList();
+        }
+
+        public async Task<List<ComboboxItemDto>> GetEmployeesAsync()
+        {
+            return (await _employeeRepo.GetAllListAsync(x => x.ActiveStatus)).Select(s => new ComboboxItemDto()
+            {
+                Value = s.Id.ToString(),
+                DisplayText = s.Name
             }).ToList();
         }
     }

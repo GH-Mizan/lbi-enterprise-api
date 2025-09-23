@@ -5,7 +5,7 @@ namespace LbI.Enums
     public enum PaymentStatus
     {
         Paid = 1,
-        [Description("Partial Paid")]
+        [Description("P. Paid")]
         Partialpaid,
         Due
     }

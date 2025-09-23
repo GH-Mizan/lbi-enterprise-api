@@ -23,7 +23,7 @@ namespace LbI.Entities
         public decimal DueAmount { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
         public int StockPointId { get; set; }
-        public string PurchaseBy { get; set; }
+        public int PurchaseBy { get; set; }
         public string Remarks { get; set; }
         public bool Locked { get; set; }
 

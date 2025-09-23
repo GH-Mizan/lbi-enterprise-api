@@ -1,11 +1,11 @@
 ﻿using LbI.Enums;
 using System.Collections.Generic;
 
-namespace LbI.Sales.Dto
+namespace LbI.Purchases.Dto
 {
-    public class DailySalesReportDto
+    public class DailyPurchaseReportDto
     {
-        public List<DailySalesReportDetailsDto> Details { get; set; }
+        public List<DailyPurchaseReportDetailsDto> Details { get; set; }
         public int MedicalOxygen9_8TotalQty { get; set; }
         public int MedicalOxygen1_36TotalQty { get; set; }
         public int MedicalAir9_8TotalQty { get; set; }
@@ -14,15 +14,15 @@ namespace LbI.Sales.Dto
         public int Nitros5KgTotalQty { get; set; }
         public int Nitros3KgTotalQty { get; set; }
         public decimal NetTotal { get; set; }
-        public decimal CashCollection { get; set; }
-        public decimal DueCollection { get; set; }
+        public decimal CashPayment { get; set; }
+        public decimal DuePayment { get; set; }
         public decimal Due { get; set; }
     }
 
-    public class DailySalesReportDetailsDto
+    public class DailyPurchaseReportDetailsDto
     {
-        public int CustomerId { get; set; }
-        public string CustomerName { get; set; }
+        public int SupplierId { get; set; }
+        public string SupplierName { get; set; }
         public ProductType Type { get; set; }
         public string TypeText { get; set; }
         public ProductSize Size { get; set; }
@@ -38,7 +38,7 @@ namespace LbI.Sales.Dto
         public decimal NetAmount { get; set; }
         public decimal PaidAmount { get; set; }
         public decimal DueAmount { get; set; }
-        public decimal DueCollection { get; set; }
+        public decimal DuePayment { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
         public string PaymentStatusText { get; set; }
     }
