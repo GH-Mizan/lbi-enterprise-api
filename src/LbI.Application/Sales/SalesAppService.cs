@@ -7,6 +7,7 @@ using LbI.Enums;
 using LbI.Helpers;
 using LbI.Sales.Dto;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -176,17 +177,21 @@ namespace LbI.Sales
                 await _salesRepo.UpdateAsync(sales);
 
                 var prevSalesDetails = await _salesDetailsRepo.GetAllListAsync(x => x.SaleId == id);
-                foreach (var pd in prevSalesDetails)
+                foreach (var sd in prevSalesDetails)
                 {
-                    var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == pd.ProductId && f.StockPointId == input.Sales.StockPointId);
+                    var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == sd.ProductId && f.StockPointId == input.Sales.StockPointId);
                     if (inventory != null)
                     {
-                        inventory.StockQty += pd.Quantity;
+                        inventory.StockQty += sd.Quantity;
                         await _inventoryRepo.UpdateAsync(inventory);
                     }
                 }
                 await _salesDetailsRepo.BatchDeleteAsync(x => x.SaleId == id);
                 await InsertSalesDetails(input.SalesDetails, id.Value, input.Sales.StockPointId);
+
+                await _dueReceivedHistoryRepo.DeleteAsync(x=> x.SalesId == id);
+                await InsertDueReceivedAsync(input.DueReceived);
+
             }
             else
             {
@@ -195,29 +200,28 @@ namespace LbI.Sales
 
                 await InsertSalesDetails(input.SalesDetails, id.Value, input.Sales.StockPointId);
                 input.DueReceived.SalesId = id.Value;
-                input.DueReceived.Default = true;
                 await InsertDueReceivedAsync(input.DueReceived);
 
                 var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastSalesInvoiceNumber);
                 invoiceSettings.Value = (Convert.ToInt32(invoiceSettings.Value) + 1).ToString();
                 await _lbiSettingsRepo.UpdateAsync(invoiceSettings);
 
-                var unlockedSales = await _salesRepo.GetAllListAsync(f => !f.Locked && f.Id < id);
-                if (unlockedSales != null) {
-                    foreach (var item in unlockedSales) {
-                        item.Locked = true;
-                        await _salesRepo.UpdateAsync(item);
-                    }
-                }
-                var unlockedPurchases = await _purchaseRepo.GetAllListAsync(f => !f.Locked);
-                if (unlockedPurchases != null)
-                {
-                    foreach (var item in unlockedPurchases)
-                    {
-                        item.Locked = true;
-                        await _purchaseRepo.UpdateAsync(item);
-                    }
-                }
+                //var unlockedSales = await _salesRepo.GetAllListAsync(f => !f.Locked && f.Id < id);
+                //if (unlockedSales != null) {
+                //    foreach (var item in unlockedSales) {
+                //        item.Locked = true;
+                //        await _salesRepo.UpdateAsync(item);
+                //    }
+                //}
+                //var unlockedPurchases = await _purchaseRepo.GetAllListAsync(f => !f.Locked);
+                //if (unlockedPurchases != null)
+                //{
+                //    foreach (var item in unlockedPurchases)
+                //    {
+                //        item.Locked = true;
+                //        await _purchaseRepo.UpdateAsync(item);
+                //    }
+                //}
             }
 
             return id.Value;
@@ -245,13 +249,13 @@ namespace LbI.Sales
         }
 
         [UnitOfWork]
-        private async Task InsertSalesDetails(List<SalesDetailsEntryDto> salesDetailsInput, int salesId, int vehicleId)
+        private async Task InsertSalesDetails(List<SalesDetailsEntryDto> salesDetailsInput, int salesId, int stockPointId)
         {
             var salesDetails = new List<SaleDetail>();
             var purchaseDetails = await _purchaseDetailsRepo.GetAllListAsync(x=> salesDetailsInput.Select(s=> s.ProductId).ToList().Contains(x.ProductId));
             foreach (var sd in salesDetailsInput)
             {
-                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == sd.ProductId && f.StockPointId == vehicleId);
+                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == sd.ProductId && f.StockPointId == stockPointId);
                 if (inventory != null)
                 {
                     inventory.StockQty -= sd.Quantity;
@@ -335,22 +339,14 @@ namespace LbI.Sales
                 lastCollectedBalance = item.CollectedBalance;
                 lastDueBalance = item.DueBalance;
             }
-
-            //output = output.GroupBy(t => t.Date.Date).Select(g => new SalesCollectionDueReportDto()
-            //{
-            //    Date = g.Key,
-            //    TotalSales = g.Sum(t=> t.TotalSales),
-            //    CurrentBalance = g.Sum(t => t.CurrentBalance),
-            //    CashCollection = g.Sum(t => t.CashCollection),
-            //    DueCollection = g.Sum(t => t.DueCollection),
-            //    TotalCollection = g.Sum(t => t.TotalCollection),
-            //    CollectedBalance = g.Sum(t => t.CollectedBalance),
-            //    CurrenctDue = g.Sum(t => t.CurrenctDue),
-            //    DetuctedDue = g.Sum(t => t.DetuctedDue),
-            //    DueBalance = g.Sum(t => t.DueBalance)
-            //}).ToList();
-
-            return output;
+            for (var day = startDate.Date; day <= endDate.Date; day = day.AddDays(1))
+            {
+                if(!output.Any(x=> x.Date.Date == day))
+                {
+                    output.Add(new SalesCollectionDueReportDto() { Date = day, Empty = true});
+                }
+            }
+            return output.OrderBy(o=> o.Date.Date).ToList();
         }
 
         public async Task<DailySalesReportDto> GetDailySalesReportAsync(DateTime date)
@@ -506,24 +502,27 @@ namespace LbI.Sales
             return output;
         }
 
-        public async Task<List<CustomerLedgerReportDto>> GetCustomerLedgerReportAsync(int customerId, DateTime startDate, DateTime endDate)
+        public async Task<CustomerLedgerReportDto> GetCustomerLedgerReportAsync(int customerId, DateTime startDate, DateTime endDate)
         {
             var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date)).OrderBy(x => x.Date).ToList();
             if(!sales.Any())
-                return new List<CustomerLedgerReportDto>();
+                return new CustomerLedgerReportDto()
+                {
+                    Details = new List<CustomerLedgerDetailsDto>()
+                };
 
             var saleIds = sales.Select(s=> s.Id).ToList();
             var saleDetails = await _salesDetailsRepo.GetAllListAsync(x => saleIds.Contains(x.SaleId));
             var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => saleIds.Contains(x.SalesId));
             var products = await _productRepo.GetAllListAsync();
 
-            var output = new List<CustomerLedgerReportDto>();
+            var details = new List<CustomerLedgerDetailsDto>();
             decimal lastBalance = 0M;
             foreach(var s in sales)
             {
                 var thisSaleDetails = saleDetails.Where(x=> x.SaleId == s.Id).ToList();
                 var thisHistories = histories.Where(x => x.SalesId == s.Id && x.ReceiveDate.Date == s.Date.Date).ToList();
-                var ls = new CustomerLedgerReportDto()
+                var ls = new CustomerLedgerDetailsDto()
                 {
                     Date = s.Date,
                     CreditTotal = s.NetAmount,
@@ -569,29 +568,58 @@ namespace LbI.Sales
                     }
                 }
 
-                output.Add(ls);
+                details.Add(ls);
             }
+            var actualTotal = (await _salesRepo.GetAllAsync()).Where(x => x.CustomerId == customerId).GroupBy(t => 1).Select(g => new
+            {
+                TotalNetAmount = g.Sum(s => s.NetAmount),
+                TotalPaidAmount = g.Sum(s => s.PaidAmount)
+            }).FirstOrDefault();
+            var output = details.GroupBy(t => 1).Select(g => new CustomerLedgerReportDto()
+            {
+                MedicalOxygen9_8TotalQty = g.Sum(s=> s.MedicalOxygen9_8Qty),
+                MedicalOxygen1_36TotalQty = g.Sum(s => s.MedicalOxygen1_36Qty),
+                MedicalAir9_8TotalQty = g.Sum(s => s.MedicalAir9_8Qty),
+                MedicalAir7TotalQty = g.Sum(s => s.MedicalAir7Qty),
+                Nitros30KgTotalQty = g.Sum(s => s.Nitros30KgQty),
+                Nitros5KgTotalQty = g.Sum(s => s.Nitros5KgQty),
+                Nitros3KgTotalQty = g.Sum(s => s.Nitros3KgQty),
+                OverallCreditTotal = g.Sum(s => s.CreditTotal),
+                OverallDebitTotal = g.Sum(s => s.DebitTotal),
+                OverallBalance = g.Sum(s => s.Balance),
+                Details = details
+            }).First();
+            
+            if(actualTotal != null)
+            {
+                output.ActualCreditTotal = actualTotal.TotalNetAmount;
+                output.ActualDebitTotal = actualTotal.TotalPaidAmount;
+            }
+            
 
             return output;
         }
 
-        public async Task<List<CustomerDueReportDto>> GetCustomerDueReportAsync(int customerId, DateTime startDate, DateTime endDate)
+        public async Task<CustomerDueReportDto> GetCustomerDueReportAsync(int customerId, DateTime startDate, DateTime endDate)
         {
             var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date && x.DueAmount > 0)).OrderBy(x => x.Date).ToList();
             if (!sales.Any())
-                return new List<CustomerDueReportDto>();
+                return new CustomerDueReportDto()
+                {
+                    Details = new List<CustomerDueDetailsDto>()
+                };
 
             var saleIds = sales.Select(s => s.Id).ToList();
             var saleDetails = await _salesDetailsRepo.GetAllListAsync(x => saleIds.Contains(x.SaleId));
             //var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => saleIds.Contains(x.SalesId));
             var products = await _productRepo.GetAllListAsync();
 
-            var output = new List<CustomerDueReportDto>();
+            var details = new List<CustomerDueDetailsDto>();
             decimal lastBalance = 0M;
             foreach (var s in sales)
             {
                 var thisSaleDetails = saleDetails.Where(x => x.SaleId == s.Id).ToList();
-                var due = new CustomerDueReportDto()
+                var due = new CustomerDueDetailsDto()
                 {
                     Date = s.Date,
                     InvoiceNo = s.InvoiceNumber,
@@ -636,8 +664,25 @@ namespace LbI.Sales
                     }
                 }
 
-                output.Add(due);
+                details.Add(due);
             }
+            var output = details.GroupBy(t => 1).Select(g => new CustomerDueReportDto()
+            {
+                MedicalOxygen9_8TotalQty = g.Sum(s => s.MedicalOxygen9_8Qty),
+                MedicalOxygen1_36TotalQty = g.Sum(s => s.MedicalOxygen1_36Qty),
+                MedicalAir9_8TotalQty = g.Sum(s => s.MedicalAir9_8Qty),
+                MedicalAir7TotalQty = g.Sum(s => s.MedicalAir7Qty),
+                Nitros30KgTotalQty = g.Sum(s => s.Nitros30KgQty),
+                Nitros5KgTotalQty = g.Sum(s => s.Nitros5KgQty),
+                Nitros3KgTotalQty = g.Sum(s => s.Nitros3KgQty),
+                OverallDue = g.Sum(s => s.TotalDue),
+                OverallBalance = g.Sum(s => s.Balance),
+                Details = details
+            }).First();
+
+            var initialDue = (await _customerRepo.SingleAsync(x => x.Id == customerId)).InitialDue;
+            output.ActualDue = (await _salesRepo.GetAllAsync()).Where(x=> x.CustomerId == customerId && x.DueAmount > 0).Sum(s=> s.DueAmount) + initialDue;
+
             return output;
         }
 
@@ -888,6 +933,24 @@ namespace LbI.Sales
             output.TotalAmount = sales.Sum(s => s.Amount);
 
             return output;
+        }
+
+        [UnitOfWork]
+        public async Task DeleteAsync(int saleId, int stockPointId)
+        {
+            var prevSalesDetails = await _salesDetailsRepo.GetAllListAsync(x => x.SaleId == saleId);
+            foreach (var sd in prevSalesDetails)
+            {
+                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == sd.ProductId && f.StockPointId == stockPointId);
+                if (inventory != null)
+                {
+                    inventory.StockQty += sd.Quantity;
+                    await _inventoryRepo.UpdateAsync(inventory);
+                }
+            }
+            await _dueReceivedHistoryRepo.BatchDeleteAsync(x => x.SalesId == saleId);
+            await _salesDetailsRepo.BatchDeleteAsync(x => x.SaleId == saleId);
+            await _salesRepo.DeleteAsync(x => x.Id == saleId);
         }
 
         #endregion

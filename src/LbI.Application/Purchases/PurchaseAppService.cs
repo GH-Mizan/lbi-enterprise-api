@@ -6,9 +6,6 @@ using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
 using LbI.Purchases.Dto;
-using LbI.Sales.Dto;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -181,6 +178,9 @@ namespace LbI.Purchases
                 }
                 await _purchaseDetailsRepo.BatchDeleteAsync(x => x.PurchaseId == id);
                 await InsertPurchaseDetails(input.PurchaseDetails, id.Value, input.Purchase.StockPointId);
+
+                await _duePaymentHistoryRepo.DeleteAsync(x => x.PurchaseId == id);
+                await InsertDuePaymentAsync(input.DuePayment);
             }
             else
             {
@@ -189,7 +189,6 @@ namespace LbI.Purchases
 
                 await InsertPurchaseDetails(input.PurchaseDetails, id.Value, input.Purchase.StockPointId);
                 input.DuePayment.PurchaseId = id.Value;
-                input.DuePayment.Default = true;
                 await InsertDuePaymentAsync(input.DuePayment);
 
                 var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastPurchaseInvoiceNumber);
@@ -415,6 +414,24 @@ namespace LbI.Purchases
             };
 
             return output;
+        }
+
+        [UnitOfWork]
+        public async Task DeleteAsync(int purchaseId, int stockPointId)
+        {
+            var prevPurchaseDetails = await _purchaseDetailsRepo.GetAllListAsync(x => x.PurchaseId == purchaseId);
+            foreach (var pd in prevPurchaseDetails)
+            {
+                var inventory = await _inventoryRepo.FirstOrDefaultAsync(f => f.ProductId == pd.ProductId && f.StockPointId == stockPointId);
+                if (inventory != null)
+                {
+                    inventory.StockQty -= pd.Quantity;
+                    await _inventoryRepo.UpdateAsync(inventory);
+                }
+            }
+            await _duePaymentHistoryRepo.BatchDeleteAsync(x=> x.PurchaseId == purchaseId);
+            await _purchaseDetailsRepo.BatchDeleteAsync(x => x.PurchaseId == purchaseId);
+            await _purchaseRepo.DeleteAsync(x=> x.Id == purchaseId);
         }
     }
 }

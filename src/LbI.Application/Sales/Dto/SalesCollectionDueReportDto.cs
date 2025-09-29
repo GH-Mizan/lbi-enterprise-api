@@ -14,6 +14,7 @@ namespace LbI.Sales.Dto
         public decimal CurrenctDue { get; set; }
         public decimal DetuctedDue { get; set; }
         public decimal DueBalance { get; set; }
+        public bool Empty { get; set; }
 
     }
 }
