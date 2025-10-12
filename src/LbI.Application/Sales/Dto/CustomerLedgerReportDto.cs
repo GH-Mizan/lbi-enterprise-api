@@ -17,9 +17,9 @@ namespace LbI.Sales.Dto
         public decimal OverallCreditTotal { get; set; } //NetAmount
         public decimal OverallDebitTotal { get; set; } //PaidAmount
         public decimal OverallBalance { get; set; }
-
         public decimal ActualCreditTotal { get; set; }
         public decimal ActualDebitTotal { get; set; }
+        public decimal InitialDue { get; set; }
 
         public List<CustomerLedgerDetailsDto> Details { get; set; }
     }

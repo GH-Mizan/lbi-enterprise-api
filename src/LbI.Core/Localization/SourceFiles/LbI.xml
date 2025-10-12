@@ -121,6 +121,25 @@
     <text name="403PageDescription">You don't have permission to access this resource. Please contact your administrator.</text>
     <text name="403PageButton">Go back to Dashboard</text>
 	  
-	<text name="Reports">Reports</text>
+	<text name="PurchaseEdit">Purchase Edit</text>
+	<text name="PurchaseDelete">Purchase Delete</text>
+	<text name="SaleEdit">Sale Edit</text>
+	<text name="SaleDelete">Sale Delete</text>
+	<text name="DailyCash">Daily Cash</text>
+	<text name="ProductEdit">Product Edit</text>
+	<text name="ClientEdit">Client Edit</text>
+	<text name="SupplierEdit">Supplier Edit</text>
+	<text name="EmployeeEdit">Employee Edit</text>
+	<text name="DepartmentEdit">Department Edit</text>
+	<text name="DesignationEdit">Designation Edit</text>
+	<text name="StockPointEdit">Stock Point Edit</text>
+	<text name="SaleCollectionDueReport">Sale Collection Due Report</text>
+	<text name="DailyPurchaseReport">Daily Purchase Report</text>
+	<text name="DailySalesReport">Daily Sales Report</text>
+	<text name="ClientsLedgerReport">Clients Ledger Report</text>
+	<text name="ClientsDueReport">Clients Due Report</text>
+	<text name="ClientsBalanceReport">Clients Balance Report</text>
+	<text name="MonthlySalesRankingReport">Monthly Sales Ranking Report</text>
+	<text name="SalesInvoiceReport">Sales Invoice Report</text>
   </texts>
 </localizationDictionary>

@@ -111,7 +111,7 @@ namespace LbI.Products
             };
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task ProductRemoveAsync(int id)
         {
             var product = await _productRepo.GetAsync(id);
             await _productRepo.DeleteAsync(product);

@@ -10,6 +10,6 @@ namespace LbI.Suppliers
         Task<PagedResultDto<SupplierOutputDto>> GetPaginatedSupplierssAsync(SuppliersFilterDto filter);
         Task<SupplierCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(SupplierCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task SupplierRemoveAsync(int id);
     }
 }

@@ -73,7 +73,7 @@ namespace LbI.StockPoints
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task StockPointRemoveAsync(int id)
         {
             var StockPoint = await _stockPointRepo.GetAsync(id);
             await _stockPointRepo.DeleteAsync(StockPoint);

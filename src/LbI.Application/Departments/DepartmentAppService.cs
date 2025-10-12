@@ -63,7 +63,7 @@ namespace LbI.Departments
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task DepartmentRemoveAsync(int id)
         {
             var department = await _departmentRepo.GetAsync(id);
             await _departmentRepo.DeleteAsync(department);

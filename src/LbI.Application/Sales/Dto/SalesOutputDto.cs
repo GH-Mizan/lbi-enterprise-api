@@ -8,6 +8,7 @@ namespace LbI.Sales.Dto
         public int Id { get; set; }
         public DateTime Date { get; set; }
         public string InvoiceNumber { get; set; }
+        public string ReferenceNumber { get; set; }
         public int CustomerId { get; set; }
         public string CustomerName { get; set; }
         public decimal TotalAmount { get; set; }

@@ -74,7 +74,7 @@ namespace LbI.Suppliers
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task SupplierRemoveAsync(int id)
         {
             var supplier = await _supplierRepo.GetAsync(id);
             await _supplierRepo.DeleteAsync(supplier);

@@ -83,7 +83,7 @@ namespace LbI.Customers
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task CustomerRemoveAsync(int id)
         {
             var customer = await _customerRepo.GetAsync(id);
             await _customerRepo.DeleteAsync(customer);

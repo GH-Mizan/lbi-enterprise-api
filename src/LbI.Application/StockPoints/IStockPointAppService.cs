@@ -10,6 +10,6 @@ namespace LbI.StockPoints
         Task<PagedResultDto<StockPointOutputDto>> GetPaginatedStockPointsAsync(StockPointsFilterDto filter);
         Task<StockPointCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(StockPointCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task StockPointRemoveAsync(int id);
     }
 }

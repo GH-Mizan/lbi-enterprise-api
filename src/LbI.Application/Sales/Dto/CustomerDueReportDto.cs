@@ -15,6 +15,7 @@ namespace LbI.Sales.Dto
         public decimal OverallDue { get; set; }
         public decimal OverallBalance { get; set; }
         public decimal ActualDue { get; set; }
+        public decimal InitialDue { get; set; }
         public List<CustomerDueDetailsDto> Details { get; set; }
     }
 

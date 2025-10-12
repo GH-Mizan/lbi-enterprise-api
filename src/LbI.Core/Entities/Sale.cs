@@ -9,6 +9,7 @@ namespace LbI.Entities
     {
         public DateTime Date { get; set; }
         public string InvoiceNumber { get; set; }
+        public string ReferenceNumber { get; set; }
         public int CustomerId { get; set; }
         public string CustomerName { get; set; }
         [Column(TypeName = "decimal(10, 2)")]

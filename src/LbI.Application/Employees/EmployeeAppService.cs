@@ -90,7 +90,7 @@ namespace LbI.Employees
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task EmployeeRemoveAsync(int id)
         {
             var employee = await _employeeRepo.GetAsync(id);
             await _employeeRepo.DeleteAsync(employee);

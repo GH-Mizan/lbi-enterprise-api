@@ -2,6 +2,7 @@
 using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
+using Abp.UI;
 using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
@@ -22,7 +23,6 @@ namespace LbI.Purchases
         private readonly IRepository<Inventory> _inventoryRepo;
         private readonly IRepository<Product> _productRepo;
         private readonly IRepository<StockPoint> _vehicleRepo;
-        private readonly IRepository<LbiSetting> _lbiSettingsRepo;
         private readonly IRepository<Supplier> _supplierRepo;
         public PurchaseAppService(
             IRepository<Purchase> purchaseRepo,
@@ -30,7 +30,6 @@ namespace LbI.Purchases
             IRepository<Inventory> inventoryRepo,
             IRepository<Product> productRepo,
             IRepository<StockPoint> vehicleRepo,
-            IRepository<LbiSetting> lbiSettingsRepo,
             IRepository<DuePaymentHistory> duePaymentHistoryRepo,
             IRepository<Supplier> supplierRepo
             )
@@ -40,7 +39,6 @@ namespace LbI.Purchases
             _inventoryRepo = inventoryRepo;
             _productRepo = productRepo;
             _vehicleRepo = vehicleRepo;
-            _lbiSettingsRepo = lbiSettingsRepo;
             _duePaymentHistoryRepo = duePaymentHistoryRepo;
             _supplierRepo = supplierRepo;
         }
@@ -138,24 +136,6 @@ namespace LbI.Purchases
             };
         }
 
-        public async Task<string> GetLastInvoiceNumberAsync()
-        {
-            var settings = await _lbiSettingsRepo.FirstOrDefaultAsync(x => x.Key == InitialSetupKey.LastPurchaseInvoiceNumber);
-            if (settings != null)
-            {
-                return settings.Value;
-            } 
-            else
-            {
-                await _lbiSettingsRepo.InsertAsync(new LbiSetting()
-                {
-                    Key = InitialSetupKey.LastPurchaseInvoiceNumber,
-                    Value = "1001"
-                });
-                return "1001";
-            }
-        }
-
         [UnitOfWork]
         public async Task CreateOrUpdateAsync(PurchaseEntryInput input)
         {
@@ -190,26 +170,50 @@ namespace LbI.Purchases
                 await InsertPurchaseDetails(input.PurchaseDetails, id.Value, input.Purchase.StockPointId);
                 input.DuePayment.PurchaseId = id.Value;
                 await InsertDuePaymentAsync(input.DuePayment);
-
-                var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastPurchaseInvoiceNumber);
-                invoiceSettings.Value = (Convert.ToInt32(invoiceSettings.Value) + 1).ToString();
-                await _lbiSettingsRepo.UpdateAsync(invoiceSettings);
-
             }
         }
 
         [UnitOfWork]
         public async Task DuePaymentEntryAsync(DuePaymentEntryDto input)
         {
-            var purchase = await _purchaseRepo.SingleAsync(s => s.Id == input.PurchaseId);
-            purchase.Discount += input.Discount;
-            purchase.NetAmount = input.NetTotal;
-            purchase.PaidAmount += input.TotalPaid;
-            purchase.DueAmount = input.Due;
-            purchase.Remarks = input.Remarks;
-            purchase.PaymentStatus = purchase.DueAmount == 0 ? PaymentStatus.Paid : purchase.TotalAmount > purchase.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
-            await _purchaseRepo.UpdateAsync(purchase);
-            await InsertDuePaymentAsync(input.DuePayment);
+            try
+            {
+                var purchase = await _purchaseRepo.SingleAsync(s => s.Id == input.PurchaseId);
+                purchase.Discount += input.Discount;
+                purchase.NetAmount = input.NetTotal;
+                purchase.PaidAmount += input.TotalPaid;
+                purchase.DueAmount = input.Due;
+                purchase.Remarks = input.Remarks;
+                purchase.PaymentStatus = purchase.DueAmount == 0 ? PaymentStatus.Paid : purchase.TotalAmount > purchase.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
+                await _purchaseRepo.UpdateAsync(purchase);
+                await InsertDuePaymentAsync(input.DuePayment);
+            }
+            catch (Exception ex)
+            {
+                throw new UserFriendlyException(ex.Message);
+            }
+        }
+
+
+        [UnitOfWork]
+        public async Task RemoveDuePaymentAsync(int id)
+        {
+            try
+            {
+                var dp = await _duePaymentHistoryRepo.SingleAsync(x => x.Id == id);
+                var purchase = await _purchaseRepo.SingleAsync(s => s.Id == dp.PurchaseId);
+                purchase.Discount -= dp.Discount;
+                //sale.NetAmount -= dr.NetTotal;
+                purchase.PaidAmount -= dp.TotalPaid;
+                purchase.DueAmount = purchase.NetAmount - purchase.Discount - purchase.PaidAmount;
+                purchase.PaymentStatus = purchase.DueAmount == 0 ? PaymentStatus.Paid : purchase.TotalAmount > purchase.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
+                await _purchaseRepo.UpdateAsync(purchase);
+                await _duePaymentHistoryRepo.DeleteAsync(id);
+            }
+            catch (Exception ex)
+            {
+                throw new UserFriendlyException(ex.Message);
+            }
         }
 
         public async Task<List<DuePaymentHistoryDto>> GetDuePaymentHistoriesAsync(int purchaseId)
@@ -417,7 +421,7 @@ namespace LbI.Purchases
         }
 
         [UnitOfWork]
-        public async Task DeleteAsync(int purchaseId, int stockPointId)
+        public async Task PurcahseRemoveAsync(int purchaseId, int stockPointId)
         {
             var prevPurchaseDetails = await _purchaseDetailsRepo.GetAllListAsync(x => x.PurchaseId == purchaseId);
             foreach (var pd in prevPurchaseDetails)

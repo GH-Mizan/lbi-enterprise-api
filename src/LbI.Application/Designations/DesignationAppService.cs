@@ -1,7 +1,8 @@
 ﻿using Abp.Application.Services.Dto;
 using Abp.Domain.Repositories;
-using LbI.Entities;
 using LbI.Designations.Dto;
+using LbI.Entities;
+using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -63,7 +64,7 @@ namespace LbI.Designations
             }
         }
 
-        public async Task DeleteAsync(int id)
+        public async Task DesignationRemoveAsync(int id)
         {
             var designation = await _designationRepo.GetAsync(id);
             await _designationRepo.DeleteAsync(designation);

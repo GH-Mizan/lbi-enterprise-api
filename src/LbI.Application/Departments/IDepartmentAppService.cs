@@ -10,6 +10,6 @@ namespace LbI.Departments
         Task<PagedResultDto<DepartmentOutputDto>> GetPaginatedDepartmentsAsync(DepartmentsFilterDto filter);
         Task<DepartmentCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(DepartmentCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task DepartmentRemoveAsync(int id);
     }
 }

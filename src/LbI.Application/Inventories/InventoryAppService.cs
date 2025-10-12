@@ -3,8 +3,8 @@ using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.UI;
 using LbI.Entities;
+using LbI.Enums;
 using LbI.Inventories.Dto;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -30,33 +30,65 @@ namespace LbI.Inventories
 
         }
 
-        public async Task<List<StockQuantityOutputDto>> GetInventoriesAsync()
+        public async Task<List<InventoryOutputDto>> GetInventoriesAsync()
         {
-            var output = (from i in (await _inventoryRepo.GetAllAsync()).GroupBy(t => t.StockPointId).Select(g => new
-                    {
-                        StockPointId = g.Key,
-                        Stock = g.Sum(s => s.StockQty)
-                    })
-                     join sp in await _stockPointRepo.GetAllAsync() on i.StockPointId equals sp.Id
-                     select new StockQuantityOutputDto()
-                     {
-                         StockPointId = i.StockPointId,
-                         StockPointName = sp.Name,
-                         Stock = i.Stock
-                     }).ToList();
-            return output;
-        }
+            var stockPoints = await _stockPointRepo.GetAllListAsync();
+            var inventories = await _inventoryRepo.GetAllListAsync();
+            var products = await _productRepo.GetAllListAsync();
 
-        public async Task<List<StockWiseInventoryOutputDto>> GetInventoriesBreakpointAsync(int stockPointId)
-        {
-            return (from i in await _inventoryRepo.GetAllAsync()
-                    join p in await _productRepo.GetAllAsync() on i.ProductId equals p.Id
-                    where i.StockPointId == stockPointId
-                    select new StockWiseInventoryOutputDto()
+            var output = new List<InventoryOutputDto>();
+
+            foreach (var sp in stockPoints)
+            {
+                var inventory = new InventoryOutputDto()
+                {
+                    StockPointId = sp.Id,
+                    StockPointName = sp.Name
+                };
+
+                var thisInventories = inventories.Where(x => x.StockPointId == sp.Id).ToList();
+                foreach (var product in products)
+                {
+                    var thisProduct = thisInventories.FirstOrDefault(f => f.ProductId == product.Id);
+                    if (thisProduct != null)
                     {
-                        ProductName = p.Name,
-                        Stock = i.StockQty
-                    }).ToList();
+                        if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                        {
+                            inventory.MedicalOxygen9_8Qty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                        {
+                            inventory.MedicalOxygen1_36Qty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                        {
+                            inventory.MedicalAir9_8Qty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                        {
+                            inventory.MedicalAir7Qty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                        {
+                            inventory.Nitros30KgQty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                        {
+                            inventory.Nitros5KgQty = thisProduct.StockQty;
+                        }
+                        else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                        {
+                            inventory.Nitros3KgQty = thisProduct.StockQty;
+                        }
+                    }
+                }
+
+                inventory.Total = inventory.MedicalOxygen9_8Qty + inventory.MedicalOxygen1_36Qty + inventory.MedicalAir9_8Qty + inventory.MedicalAir7Qty + inventory.Nitros30KgQty + inventory.Nitros5KgQty + inventory.Nitros3KgQty;
+
+                output.Add(inventory);
+            }
+
+            return output;
         }
 
         [UnitOfWork]

@@ -10,6 +10,6 @@ namespace LbI.Products
         Task<PagedResultDto<ProductOutputDto>> GetPaginatedProductsAsync(ProductsFilterDto filter);
         Task<ProductCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(ProductCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task ProductRemoveAsync(int id);
     }
 }

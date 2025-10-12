@@ -14,6 +14,6 @@ namespace LbI.Customers
         Task<PagedResultDto<CustomerOutputDto>> GetPaginatedCustomersAsync(CustomersFilterDto filter);
         Task<CustomerCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(CustomerCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task CustomerRemoveAsync(int id);
     }
 }

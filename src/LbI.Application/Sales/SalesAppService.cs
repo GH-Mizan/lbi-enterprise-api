@@ -2,12 +2,13 @@
 using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
+using Abp.UI;
 using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
 using LbI.Sales.Dto;
+using Microsoft.AspNetCore.Mvc;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -24,7 +25,6 @@ namespace LbI.Sales
         private readonly IRepository<Product> _productRepo;
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<LbiSetting> _lbiSettingsRepo;
-        private readonly IRepository<Purchase> _purchaseRepo;
         private readonly IRepository<PurchaseDetail> _purchaseDetailsRepo;
         private readonly IRepository<Customer> _customerRepo;
         private readonly IRepository<Employee> _employeeRepo;
@@ -35,7 +35,6 @@ namespace LbI.Sales
             IRepository<Product> productRepo,
             IRepository<StockPoint> vehicleRepo,
             IRepository<LbiSetting> lbiSettingsRepo,
-            IRepository<Purchase> purchaseRepo,
             IRepository<PurchaseDetail> purchaseDetailsRepo,
             IRepository<DueReceivedHistory> dueReceivedHistoryRepo,
             IRepository<Customer> customerRepo,
@@ -48,7 +47,6 @@ namespace LbI.Sales
             _productRepo = productRepo;
             _vehicleRepo = vehicleRepo;
             _lbiSettingsRepo = lbiSettingsRepo;
-            _purchaseRepo = purchaseRepo;
             _purchaseDetailsRepo = purchaseDetailsRepo;
             _dueReceivedHistoryRepo = dueReceivedHistoryRepo;
             _customerRepo = customerRepo;
@@ -65,6 +63,7 @@ namespace LbI.Sales
                              Id = s.Id,
                              Date = s.Date,
                              InvoiceNumber = s.InvoiceNumber,
+                             ReferenceNumber = s.ReferenceNumber,
                              CustomerId = s.CustomerId,
                              CustomerName = s.CustomerName,
                              TotalAmount = s.TotalAmount,
@@ -82,7 +81,8 @@ namespace LbI.Sales
             if (searchText != null)
             {
                 query = query.Where(x =>
-                x.InvoiceNumber.ToLower().Contains(searchText) || 
+                x.InvoiceNumber.ToLower().Contains(searchText) ||
+                x.ReferenceNumber.ToLower().Contains(searchText) ||
                 x.CustomerName.ToLower().Contains(searchText) ||
                 x.StockPointName.ToLower().Contains(searchText)
                 );
@@ -92,6 +92,8 @@ namespace LbI.Sales
             foreach (var p in items)
             {
                 p.PaymentStatusText = p.PaymentStatus.DisplayName();
+                if(!string.IsNullOrEmpty(p.ReferenceNumber))
+                    p.InvoiceNumber = p.ReferenceNumber;
             }
 
             return new PagedResultDto<SalesOutputDto>()
@@ -160,9 +162,9 @@ namespace LbI.Sales
                 await _lbiSettingsRepo.InsertAsync(new LbiSetting()
                 {
                     Key = InitialSetupKey.LastSalesInvoiceNumber,
-                    Value = "1001"
+                    Value = "A00000"
                 });
-                return "1001";
+                return "A00000";
             }
         }
 
@@ -203,7 +205,11 @@ namespace LbI.Sales
                 await InsertDueReceivedAsync(input.DueReceived);
 
                 var invoiceSettings = await _lbiSettingsRepo.SingleAsync(x => x.Key == InitialSetupKey.LastSalesInvoiceNumber);
-                invoiceSettings.Value = (Convert.ToInt32(invoiceSettings.Value) + 1).ToString();
+                var lastInvoiceNumber = invoiceSettings.Value;
+                string prefix = lastInvoiceNumber.Substring(0, 1);
+                var parsedInvoiceNumber = Convert.ToInt32(lastInvoiceNumber.Remove(0, 1));
+
+                invoiceSettings.Value = prefix + (parsedInvoiceNumber + 1).ToString().PadLeft(5, '0');
                 await _lbiSettingsRepo.UpdateAsync(invoiceSettings);
 
                 //var unlockedSales = await _salesRepo.GetAllListAsync(f => !f.Locked && f.Id < id);
@@ -230,16 +236,44 @@ namespace LbI.Sales
         [UnitOfWork]
         public async Task DueReceivedEntryAsync(DueReceivedEntryDto input)
         {
-            var sales = await _salesRepo.SingleAsync(s => s.Id == input.SalesId);
-            sales.Discount += input.Discount;
-            sales.NetAmount = input.NetTotal;
-            sales.PaidAmount += input.TotalPaid;
-            sales.DueAmount = input.Due;
-            sales.Remarks = input.Remarks;
-            //sales.PaymentReceiveHistory = input.PaymentReceiveHistory;
-            sales.PaymentStatus = sales.DueAmount == 0 ? PaymentStatus.Paid : sales.TotalAmount > sales.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
-            await _salesRepo.UpdateAsync(sales);
-            await InsertDueReceivedAsync(input.DueReceived);
+            try
+            {
+                var sales = await _salesRepo.SingleAsync(s => s.Id == input.SalesId);
+                sales.Discount += input.Discount;
+                sales.NetAmount = input.NetTotal;
+                sales.PaidAmount += input.TotalPaid;
+                sales.DueAmount = input.Due;
+                sales.Remarks = input.Remarks;
+                //sales.PaymentReceiveHistory = input.PaymentReceiveHistory;
+                sales.PaymentStatus = sales.DueAmount == 0 ? PaymentStatus.Paid : sales.TotalAmount > sales.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
+                await _salesRepo.UpdateAsync(sales);
+                await InsertDueReceivedAsync(input.DueReceived);
+            }
+            catch (Exception ex)
+            {
+                throw new UserFriendlyException(ex.Message);
+            }
+        }
+
+        [UnitOfWork]
+        public async Task DueReceivedRemoveAsync(int id)
+        {
+            try
+            {
+                var dr = await _dueReceivedHistoryRepo.SingleAsync(x => x.Id == id);
+                var sale = await _salesRepo.SingleAsync(s => s.Id == dr.SalesId);
+                sale.Discount -= dr.Discount;
+                //sale.NetAmount -= dr.NetTotal;
+                sale.PaidAmount -= dr.TotalPaid;
+                sale.DueAmount = sale.NetAmount - sale.Discount - sale.PaidAmount;
+                sale.PaymentStatus = sale.DueAmount == 0 ? PaymentStatus.Paid : sale.TotalAmount > sale.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
+                await _salesRepo.UpdateAsync(sale);
+                await _dueReceivedHistoryRepo.DeleteAsync(id);
+            }
+            catch(Exception ex)
+            {
+                throw new UserFriendlyException(ex.Message);
+            }
         }
 
         public async Task<List<DueReceivedHistoryDto>> GetDueReceivedHistoriesAsync(int salesId)
@@ -381,11 +415,12 @@ namespace LbI.Sales
                              join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
                              select new
                              {
-                                 h.SaleId,
+                                 //h.SaleId,
                                  s.CustomerId,
                                  CustomerName = c.Name,
                                  h.TotalPaid,
-                                 s.InvoiceNumber
+                                 //s.InvoiceNumber,
+                                 //s.ReferenceNumber,
                              }).ToList();
 
             var details = new List<DailySalesReportDetailsDto>();
@@ -395,7 +430,7 @@ namespace LbI.Sales
                 {
                     CustomerId = s.CustomerId,
                     CustomerName = s.CustomerName,
-                    InvoiceNo = s.InvoiceNumber,
+                    InvoiceNo = !string.IsNullOrEmpty(s.ReferenceNumber) ? s.ReferenceNumber : s.InvoiceNumber,
                     PaymentStatus = s.PaymentStatus,
                     PaymentStatusText = s.PaymentStatus.DisplayName(),
                     NetAmount = s.NetAmount,
@@ -463,6 +498,13 @@ namespace LbI.Sales
                 }).ToList();
             }
 
+            histories = histories.GroupBy(t => t.CustomerId).Select(g => new
+            {
+                CustomerId = g.Key,
+                g.First().CustomerName,
+                TotalPaid = g.Sum(s=> s.TotalPaid)
+            }).ToList();
+
             foreach (var h in histories)
             {
                 var d = details.FirstOrDefault(f => f.CustomerId == h.CustomerId);
@@ -476,7 +518,7 @@ namespace LbI.Sales
                     {
                         CustomerId = h.CustomerId,
                         CustomerName = h.CustomerName,
-                        InvoiceNo = h.InvoiceNumber,
+                        //InvoiceNo = !string.IsNullOrEmpty(h.ReferenceNumber) ? h.ReferenceNumber : h.InvoiceNumber,
                         DueCollection = h.TotalPaid
                     };
                     details.Add(item);
@@ -504,12 +546,27 @@ namespace LbI.Sales
 
         public async Task<CustomerLedgerReportDto> GetCustomerLedgerReportAsync(int customerId, DateTime startDate, DateTime endDate)
         {
-            var sales = (await _salesRepo.GetAllListAsync(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date)).OrderBy(x => x.Date).ToList();
-            if(!sales.Any())
+            var sales = (await _salesRepo.GetAllAsync()).Where(x => x.CustomerId == customerId && x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date).
+                Select(s=> new
+                {
+                    s.Id,
+                    s.Date.Date,
+                    s.NetAmount
+                }).ToList();
+
+            if (!sales.Any())
                 return new CustomerLedgerReportDto()
                 {
                     Details = new List<CustomerLedgerDetailsDto>()
                 };
+
+            var dateWiseSales = sales.GroupBy(t => t.Date).Select(g => new
+            {
+                Date = g.Key,
+                NetAmount = g.Sum(s => s.NetAmount),
+                //PaidAmount = g.Sum(s => s.PaidAmount)
+                SaleIds = g.Select(s=>s.Id).ToList()
+            }).OrderBy(o => o.Date).ToList();
 
             var saleIds = sales.Select(s=> s.Id).ToList();
             var saleDetails = await _salesDetailsRepo.GetAllListAsync(x => saleIds.Contains(x.SaleId));
@@ -518,58 +575,117 @@ namespace LbI.Sales
 
             var details = new List<CustomerLedgerDetailsDto>();
             decimal lastBalance = 0M;
-            foreach(var s in sales)
+
+            foreach (var s in dateWiseSales)
             {
-                var thisSaleDetails = saleDetails.Where(x=> x.SaleId == s.Id).ToList();
-                var thisHistories = histories.Where(x => x.SalesId == s.Id && x.ReceiveDate.Date == s.Date.Date).ToList();
+                //var thisSaleIds = sales.Where(x => x.Date == s.Date).Select(s => s.Id).ToList();
+                var thisSaleDetails = saleDetails.Where(x => s.SaleIds.Contains(x.SaleId)).ToList();
+                var thisHistories = histories.Where(x => x.ReceiveDate.Date == s.Date).ToList();
                 var ls = new CustomerLedgerDetailsDto()
                 {
                     Date = s.Date,
                     CreditTotal = s.NetAmount,
-                    DebitTotal = s.PaidAmount
+                    DebitTotal = thisHistories.Sum(s=> s.TotalPaid)
                 };
                 ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
-
                 lastBalance = ls.Balance;
 
                 foreach (var product in products)
                 {
-                    var thisProductsSales = thisSaleDetails.Where(x => x.ProductId == product.Id && x.SaleId == s.Id).ToList();
+                    var thisProductsSales = thisSaleDetails.Where(x => x.ProductId == product.Id && saleIds.Contains(x.SaleId)).ToList();
+                    var qty = thisProductsSales.Sum(s => s.Quantity);
                     if (thisProductsSales.Count > 0)
                     {
                         if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
                         {
-                            ls.MedicalOxygen9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.MedicalOxygen9_8Qty = qty;
                         }
                         else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
                         {
-                            ls.MedicalOxygen1_36Qty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.MedicalOxygen1_36Qty = qty;
                         }
                         else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
                         {
-                            ls.MedicalAir9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.MedicalAir9_8Qty = qty;
                         }
                         else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
                         {
-                            ls.MedicalAir7Qty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.MedicalAir7Qty = qty;
                         }
                         else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
                         {
-                            ls.Nitros30KgQty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.Nitros30KgQty = qty;
                         }
                         else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
                         {
-                            ls.Nitros5KgQty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.Nitros5KgQty = qty;
                         }
                         else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
                         {
-                            ls.Nitros3KgQty = thisProductsSales.Sum(s => s.Quantity);
+                            ls.Nitros3KgQty = qty;
                         }
                     }
                 }
 
                 details.Add(ls);
             }
+
+
+
+
+            //foreach(var s in sales)
+            //{
+            //    var thisSaleDetails = saleDetails.Where(x=> x.SaleId == s.Id).ToList();
+            //    var thisHistories = histories.Where(x => x.SalesId == s.Id && x.ReceiveDate.Date == s.Date.Date).ToList();
+            //    var ls = new CustomerLedgerDetailsDto()
+            //    {
+            //        Date = s.Date,
+            //        CreditTotal = s.NetAmount,
+            //        DebitTotal = s.PaidAmount
+            //    };
+            //    ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
+            //    lastBalance = ls.Balance;
+
+            //    foreach (var product in products)
+            //    {
+            //        var thisProductsSales = thisSaleDetails.Where(x => x.ProductId == product.Id && x.SaleId == s.Id).ToList();
+            //        if (thisProductsSales.Count > 0)
+            //        {
+            //            if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+            //            {
+            //                ls.MedicalOxygen9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+            //            {
+            //                ls.MedicalOxygen1_36Qty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+            //            {
+            //                ls.MedicalAir9_8Qty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+            //            {
+            //                ls.MedicalAir7Qty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+            //            {
+            //                ls.Nitros30KgQty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+            //            {
+            //                ls.Nitros5KgQty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //            else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+            //            {
+            //                ls.Nitros3KgQty = thisProductsSales.Sum(s => s.Quantity);
+            //            }
+            //        }
+            //    }
+
+            //    details.Add(ls);
+            //}
+            
+            
             var actualTotal = (await _salesRepo.GetAllAsync()).Where(x => x.CustomerId == customerId).GroupBy(t => 1).Select(g => new
             {
                 TotalNetAmount = g.Sum(s => s.NetAmount),
@@ -586,7 +702,7 @@ namespace LbI.Sales
                 Nitros3KgTotalQty = g.Sum(s => s.Nitros3KgQty),
                 OverallCreditTotal = g.Sum(s => s.CreditTotal),
                 OverallDebitTotal = g.Sum(s => s.DebitTotal),
-                OverallBalance = g.Sum(s => s.Balance),
+                //OverallBalance = g.Sum(s => s.Balance),
                 Details = details
             }).First();
             
@@ -595,7 +711,9 @@ namespace LbI.Sales
                 output.ActualCreditTotal = actualTotal.TotalNetAmount;
                 output.ActualDebitTotal = actualTotal.TotalPaidAmount;
             }
-            
+
+            output.InitialDue = (await _customerRepo.SingleAsync(x => x.Id == customerId)).InitialDue;
+            output.OverallBalance = output.ActualCreditTotal - output.ActualDebitTotal + output.InitialDue;
 
             return output;
         }
@@ -622,7 +740,7 @@ namespace LbI.Sales
                 var due = new CustomerDueDetailsDto()
                 {
                     Date = s.Date,
-                    InvoiceNo = s.InvoiceNumber,
+                    InvoiceNo = !string.IsNullOrEmpty(s.ReferenceNumber) ? s.ReferenceNumber : s.InvoiceNumber,
                     TotalDue = s.DueAmount,
                     Balance = s.DueAmount + lastBalance
                 };
@@ -680,8 +798,8 @@ namespace LbI.Sales
                 Details = details
             }).First();
 
-            var initialDue = (await _customerRepo.SingleAsync(x => x.Id == customerId)).InitialDue;
-            output.ActualDue = (await _salesRepo.GetAllAsync()).Where(x=> x.CustomerId == customerId && x.DueAmount > 0).Sum(s=> s.DueAmount) + initialDue;
+            output.InitialDue = (await _customerRepo.SingleAsync(x => x.Id == customerId)).InitialDue;
+            output.ActualDue = (await _salesRepo.GetAllAsync()).Where(x=> x.CustomerId == customerId && x.DueAmount > 0).Sum(s=> s.DueAmount) + output.InitialDue;
 
             return output;
         }
@@ -797,7 +915,6 @@ namespace LbI.Sales
             }).ToList();
         }
 
-
         public async Task<SalesReceiptOutputDto> GetSalesReceiptAsync(int saleId)
         {
             var output = (from s in await _salesRepo.GetAllAsync()
@@ -807,7 +924,9 @@ namespace LbI.Sales
                           select new SalesReceiptOutputDto()
                           {
                               Id = saleId,
+                              InvoiceDate = s.Date,
                               InvoiceNumber = s.InvoiceNumber,
+                              ReferenceNumber = s.ReferenceNumber,
                               CustomerId = s.CustomerId,
                               CustomerName = c.Name,
                               Address = c.Address,
@@ -816,6 +935,8 @@ namespace LbI.Sales
                               TotalPaid = s.PaidAmount,
                               TotalDue = s.DueAmount
                           }).First();
+            if(!string.IsNullOrEmpty(output.ReferenceNumber))
+                output.InvoiceNumber = output.ReferenceNumber;
 
             var salesDetails = (from sd in await _salesDetailsRepo.GetAllAsync()
                                 join p in await _productRepo.GetAllAsync() on sd.ProductId equals p.Id
@@ -830,7 +951,7 @@ namespace LbI.Sales
                                 }).ToList();
 
             output.Details = salesDetails;
-            output.PreviousDue = (await _salesRepo.GetAllAsync()).Where(s => s.Id != saleId && s.DueAmount > 0 && s.CustomerId == output.CustomerId).Sum(s => s.DueAmount);
+            output.PreviousDue = (await _salesRepo.GetAllAsync()).Where(s => s.Id < saleId && s.DueAmount > 0 && s.CustomerId == output.CustomerId).Sum(s => s.DueAmount);
             output.OverallDue = output.PreviousDue + output.TotalDue;
 
             return output;
@@ -935,8 +1056,9 @@ namespace LbI.Sales
             return output;
         }
 
+        
         [UnitOfWork]
-        public async Task DeleteAsync(int saleId, int stockPointId)
+        public async Task SaleRemoveAsync(int saleId, int stockPointId)
         {
             var prevSalesDetails = await _salesDetailsRepo.GetAllListAsync(x => x.SaleId == saleId);
             foreach (var sd in prevSalesDetails)
@@ -951,6 +1073,18 @@ namespace LbI.Sales
             await _dueReceivedHistoryRepo.BatchDeleteAsync(x => x.SalesId == saleId);
             await _salesDetailsRepo.BatchDeleteAsync(x => x.SaleId == saleId);
             await _salesRepo.DeleteAsync(x => x.Id == saleId);
+        }
+
+        public async Task<bool> CheckReferenceNumberAsync(string referenceNumber, int? saleId)
+        {
+            if(saleId.HasValue)
+            {
+                return (await _salesRepo.GetAllAsync()).Any(x => x.Id != saleId && x.ReferenceNumber == referenceNumber);
+            }
+            else
+            {
+                return (await _salesRepo.GetAllAsync()).Any(x=> x.ReferenceNumber == referenceNumber);
+            }
         }
 
         #endregion

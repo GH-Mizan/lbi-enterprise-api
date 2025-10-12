@@ -10,6 +10,6 @@ namespace LbI.Designations
         Task<PagedResultDto<DesignationOutputDto>> GetPaginatedDesignationsAsync(DesignationsFilterDto filter);
         Task<DesignationCreateOrUpdateDto> GetAsync(int id);
         Task CreateOrUpdateAsync(DesignationCreateOrUpdateDto input);
-        Task DeleteAsync(int id);
+        Task DesignationRemoveAsync(int id);
     }
 }
