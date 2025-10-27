@@ -27,6 +27,7 @@ namespace LbI.StockPoints
                          {
                              Id = v.Id,
                              Name = v.Name,
+                             ShortName = v.ShortName,
                              StockPointType = v.StockPointType,
                              StockPointNumber = v.StockPointNumber,
                              GpsTrackerNo = v.GpsTrackerNo,
@@ -38,6 +39,7 @@ namespace LbI.StockPoints
             {
                 query = query.Where(x =>
                 x.Name.ToLower().Contains(searchText) ||
+                x.ShortName.ToLower().Contains(searchText) ||
                 x.StockPointNumber.ToLower().Contains(searchText) ||
                 x.GpsTrackerNo.ToLower().Contains(searchText) ||
                 x.Remarks.ToLower().Contains(searchText));

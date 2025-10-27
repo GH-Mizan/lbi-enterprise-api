@@ -11,6 +11,7 @@ namespace LbI.Sales.Dto
         public string ReferenceNumber { get; set; }
         public int CustomerId { get; set; }
         public string CustomerName { get; set; }
+        public string CustomerShortName { get; set; }
         public decimal TotalAmount { get; set; }
         public decimal Discount { get; set; }
         public decimal NetAmount { get; set; }

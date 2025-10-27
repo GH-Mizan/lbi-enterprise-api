@@ -5,6 +5,7 @@ namespace LbI.Inventories.Dto
     public class ProductTransferDto
     {
         public int Id { get; set; }
+        public DateTime TransferDate { get; set; }
         public int ProductId { get; set; }
         public string ProductName { get; set; }
         public int FromStockPointId { get; set; }

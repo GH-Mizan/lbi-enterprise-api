@@ -37,4 +37,9 @@ public class LbIDbContext : AbpZeroDbContext<Tenant, Role, User, LbIDbContext>
     public DbSet<ProductTransfer> ProductTransfers { get; set; }
     public DbSet<CustomerPrice> CustomerPrices { get; set; }
 
+    public DbSet<VirtualItem> VirtualItems { get; set; }
+    public DbSet<VirtualInventory> VirtualInventories { get; set; }
+    public DbSet<VirtualStock> VirtualStocks { get; set; }
+    public DbSet<VirtualStockDetail> VirtualStockDetails { get; set; }
+
 }

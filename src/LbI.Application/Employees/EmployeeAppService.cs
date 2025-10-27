@@ -114,9 +114,14 @@ namespace LbI.Employees
             }).ToList();
         }
 
-        public async Task<List<ComboboxItemDto>> GetEmployeesAsync()
+        public async Task<List<ComboboxItemDto>> GetEmployeesAsync(string title)
         {
-            return (await _employeeRepo.GetAllListAsync(x => x.ActiveStatus)).Select(s => new ComboboxItemDto()
+            int? designationId = null;
+            if (!string.IsNullOrEmpty(title))
+            {
+                designationId = (await _designationRepo.FirstOrDefaultAsync(x => x.Title.Trim().ToLower() == title.Trim().ToLower()))?.Id;
+            }
+            return (await _employeeRepo.GetAllListAsync(x => x.ActiveStatus && (title == null || title == "" || x.DesignationId == designationId))).Select(s => new ComboboxItemDto()
             {
                 Value = s.Id.ToString(),
                 DisplayText = s.Name

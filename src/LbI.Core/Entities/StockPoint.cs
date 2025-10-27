@@ -6,6 +6,7 @@ namespace LbI.Entities
     public class StockPoint : FullAuditedEntity
     {
         public string Name { get; set; }
+        public string ShortName { get; set; }
         public StockPointType StockPointType { get; set; }
         public string StockPointNumber { get; set; }
         public string GpsTrackerNo { get; set; }

@@ -7,6 +7,7 @@ using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
 using LbI.Purchases.Dto;
+using LbI.Sales.Dto;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,6 +25,8 @@ namespace LbI.Purchases
         private readonly IRepository<Product> _productRepo;
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<Supplier> _supplierRepo;
+        private readonly IRepository<Employee> _employeeRepo;
+
         public PurchaseAppService(
             IRepository<Purchase> purchaseRepo,
             IRepository<PurchaseDetail> purchaseDetailsRepo,
@@ -31,7 +34,8 @@ namespace LbI.Purchases
             IRepository<Product> productRepo,
             IRepository<StockPoint> vehicleRepo,
             IRepository<DuePaymentHistory> duePaymentHistoryRepo,
-            IRepository<Supplier> supplierRepo
+            IRepository<Supplier> supplierRepo,
+            IRepository<Employee> employeeRepo
             )
         {
             _purchaseRepo = purchaseRepo;
@@ -41,12 +45,14 @@ namespace LbI.Purchases
             _vehicleRepo = vehicleRepo;
             _duePaymentHistoryRepo = duePaymentHistoryRepo;
             _supplierRepo = supplierRepo;
+            _employeeRepo = employeeRepo;
         }
 
         public async Task<PagedResultDto<PurchaseOutputDto>> GetPaginatedPurchasesAsync(PurchasesFilterDto filter)
         {
             var searchText = string.IsNullOrEmpty(filter.SearchText) ? null : filter.SearchText.ToLower();
             var query = (from p in await _purchaseRepo.GetAllAsync()
+                         join s in await _supplierRepo.GetAllAsync() on p.SupplierId equals s.Id
                          join v in await _vehicleRepo.GetAllAsync() on p.StockPointId equals v.Id
                          select new PurchaseOutputDto()
                          {
@@ -54,7 +60,8 @@ namespace LbI.Purchases
                              Date = p.Date,
                              InvoiceNumber = p.InvoiceNumber,
                              SupplierId = p.SupplierId,
-                             SupplierName = p.SupplierName,
+                             SupplierName = s.Name,
+                             SupplierShortName = s.ShortName,
                              TotalAmount = p.TotalAmount,
                              Discount = p.Discount,
                              NetAmount = p.NetAmount,
@@ -100,6 +107,7 @@ namespace LbI.Purchases
                      {
                          ProductId = p.Id,
                          Name = p.Name,
+                         ShortName = p.ShortName,
                          Size = p.Size,
                          Type = p.Type,
                          PurchasePrice = p.PurchasePrice,
@@ -193,7 +201,6 @@ namespace LbI.Purchases
                 throw new UserFriendlyException(ex.Message);
             }
         }
-
 
         [UnitOfWork]
         public async Task RemoveDuePaymentAsync(int id)
@@ -436,6 +443,45 @@ namespace LbI.Purchases
             await _duePaymentHistoryRepo.BatchDeleteAsync(x=> x.PurchaseId == purchaseId);
             await _purchaseDetailsRepo.BatchDeleteAsync(x => x.PurchaseId == purchaseId);
             await _purchaseRepo.DeleteAsync(x=> x.Id == purchaseId);
+        }
+
+        public async Task<PurchaseReceiptOutputDto> GetPurchaseReceiptAsync(int purchaaseId)
+        {
+            var output = (from s in await _purchaseRepo.GetAllAsync()
+                          join sp in await _supplierRepo.GetAllAsync() on s.SupplierId equals sp.Id
+                          join e in await _employeeRepo.GetAllAsync() on s.PurchaseBy equals e.Id
+                          where s.Id == purchaaseId
+                          select new PurchaseReceiptOutputDto()
+                          {
+                              Id = purchaaseId,
+                              InvoiceDate = s.Date,
+                              InvoiceNumber = s.InvoiceNumber,
+                              SupplierId = s.SupplierId,
+                              SupplierName = sp.Name,
+                              Address = sp.Address,
+                              Purchaser = e.Name,
+                              TotalAmount = s.NetAmount,
+                              TotalPaid = s.PaidAmount,
+                              TotalDue = s.DueAmount
+                          }).First();
+
+            var purchaseDetails = (from pd in await _purchaseDetailsRepo.GetAllAsync()
+                                join p in await _productRepo.GetAllAsync() on pd.ProductId equals p.Id
+                                where pd.PurchaseId == purchaaseId
+                                select new PurchaseRecieptProductDto()
+                                {
+                                    ProductId = pd.ProductId,
+                                    Product = p.Name,
+                                    UnitPrice = pd.UnitPrice,
+                                    Qty = pd.Quantity,
+                                    Amount = pd.TotalPrice
+                                }).ToList();
+
+            output.Details = purchaseDetails;
+            output.PreviousDue = (await _purchaseRepo.GetAllAsync()).Where(s => s.Id < purchaaseId && s.DueAmount > 0 && s.SupplierId == output.SupplierId).Sum(s => s.DueAmount);
+            output.OverallDue = output.PreviousDue + output.TotalDue;
+
+            return output;
         }
     }
 }

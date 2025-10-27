@@ -6,6 +6,7 @@ namespace LbI.Sales.Dto
     {
         public int ProductId { get; set; }
         public string Name { get; set; }
+        public string ShortName { get; set; }
         public ProductType Type { get; set; }
         public string TypeText { get; set; }
         public ProductSize Size { get; set; }

@@ -57,6 +57,7 @@ namespace LbI.Sales
         {
             var searchText = string.IsNullOrEmpty(filter.SearchText) ? null : filter.SearchText.ToLower();
             var query = (from s in await _salesRepo.GetAllAsync()
+                         join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
                          join v in await _vehicleRepo.GetAllAsync() on s.StockPointId equals v.Id
                          select new SalesOutputDto()
                          {
@@ -65,7 +66,8 @@ namespace LbI.Sales
                              InvoiceNumber = s.InvoiceNumber,
                              ReferenceNumber = s.ReferenceNumber,
                              CustomerId = s.CustomerId,
-                             CustomerName = s.CustomerName,
+                             CustomerName = c.Name,
+                             CustomerShortName = c.ShortName,
                              TotalAmount = s.TotalAmount,
                              Discount = s.Discount,
                              NetAmount = s.NetAmount,
@@ -113,6 +115,7 @@ namespace LbI.Sales
                      {
                          ProductId = p.Id,
                          Name = p.Name,
+                         ShortName = p.ShortName,
                          Size = p.Size,
                          Type = p.Type,
                          SalesPrice = p.SellPrice,

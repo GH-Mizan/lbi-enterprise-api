@@ -5,6 +5,7 @@ using Abp.UI;
 using LbI.Entities;
 using LbI.Enums;
 using LbI.Inventories.Dto;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -92,7 +93,7 @@ namespace LbI.Inventories
         }
 
         [UnitOfWork]
-        public async Task TransferProductsAsync(ProductTransferDto input)
+        public async Task TransferProductsAsync(ProductTransferEntryDto input)
         {
             var from = await _inventoryRepo.FirstOrDefaultAsync(f=> f.ProductId == input.ProductId && f.StockPointId == input.FromStockPointId);
             if(from == null || from.StockQty < input.TransferQuantity)
@@ -123,6 +124,7 @@ namespace LbI.Inventories
 
                 var pt = new ProductTransfer()
                 {
+                    TransferDate = input.TransferDate,
                     ProductId = input.ProductId,
                     FromStockPointId = input.FromStockPointId,
                     ToStockPointId = input.ToStockPointId,
@@ -130,6 +132,30 @@ namespace LbI.Inventories
                 };
                 await _productTransfersRepo.InsertAsync(pt);
             }
+        }
+
+        [UnitOfWork]
+        public async Task ProductTransferRemoveAsync(int id)
+        {
+            var pt = await _productTransfersRepo.SingleAsync(s => s.Id == id);
+            var thisProductInventory = await _inventoryRepo.GetAllListAsync(s => s.ProductId == pt.ProductId && (s.StockPointId == pt.ToStockPointId || s.StockPointId == pt.FromStockPointId));
+            var fromStockInventory = thisProductInventory.Single(s => s.StockPointId == pt.FromStockPointId);
+            var toStockInventory = thisProductInventory.Single(s => s.StockPointId == pt.ToStockPointId);
+                       
+            var toStockNewQty = toStockInventory.StockQty - pt.TransferQuantity; 
+            if(toStockNewQty < 0 )
+            {
+                throw new UserFriendlyException("There is not enough quantity to remove this Transfer History");
+            }
+            var fromStockNewQty = fromStockInventory.StockQty + pt.TransferQuantity;
+
+            fromStockInventory.StockQty = fromStockNewQty;
+            toStockInventory.StockQty = toStockNewQty;
+
+            await _inventoryRepo.UpdateAsync(fromStockInventory);
+            await _inventoryRepo.UpdateAsync(toStockInventory);
+
+            await _productTransfersRepo.DeleteAsync(x=> x.Id == id);
         }
 
         public async Task<List<ComboboxItemDto>> GetInventoryProductsAsync()
@@ -141,15 +167,17 @@ namespace LbI.Inventories
             }).Distinct().ToList());
         }
 
-        public async Task<List<ProductTransferDto>> GetProductTransferHistoriesAsync(int productId)
+        public async Task<List<ProductTransferDto>> GetProductTransferHistoriesAsync(int productId, DateTime date)
         {
             var output = (from pt in await _productTransfersRepo.GetAllAsync()
                           join p in await _productRepo.GetAllAsync() on pt.ProductId equals p.Id
                           join fs in await _stockPointRepo.GetAllAsync() on pt.FromStockPointId equals fs.Id
                           join ts in await _stockPointRepo.GetAllAsync() on pt.ToStockPointId equals ts.Id
+                          where pt.ProductId == productId && pt.TransferDate.Date == date.Date
                           select new ProductTransferDto()
                           {
                               Id = pt.Id,
+                              TransferDate = pt.TransferDate,
                               ProductId = pt.ProductId,
                               ProductName = p.Name,
                               FromStockPointId = pt.FromStockPointId,
@@ -160,8 +188,20 @@ namespace LbI.Inventories
                               CreationTime = pt.CreationTime
                           }).OrderBy(o=>o.CreationTime).ToList();
             return output;
+        }
 
-
+        public async Task<ProductTransferEntryDto> GetProductTransferAsync(int id)
+        {
+            var entity = await _productTransfersRepo.SingleAsync(s=> s.Id == id);
+            return new ProductTransferEntryDto()
+            {
+                Id = entity.Id,
+                TransferDate = entity.TransferDate,
+                ProductId = entity.Id,
+                FromStockPointId = entity.FromStockPointId,
+                ToStockPointId = entity.ToStockPointId,
+                TransferQuantity = entity.TransferQuantity
+            };
         }
     }
 }

@@ -1,6 +1,5 @@
 ﻿using AutoMapper;
 using LbI.Entities;
-using System.Text.RegularExpressions;
 
 namespace LbI.Products.Dto
 {

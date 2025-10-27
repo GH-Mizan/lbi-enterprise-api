@@ -7,6 +7,7 @@ namespace LbI.Entities
     public class Product: FullAuditedEntity
     {
         public string Name { get; set; }
+        public string ShortName { get; set; }
         public ProductType Type { get; set; }
         public ProductSize Size { get; set; }
         [Column(TypeName = "decimal(10, 2)")]

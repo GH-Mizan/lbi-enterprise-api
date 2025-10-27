@@ -10,6 +10,7 @@ namespace LbI.Purchases.Dto
         public string InvoiceNumber { get; set; }
         public int SupplierId { get; set; }
         public string SupplierName { get; set; }
+        public string SupplierShortName { get; set; }
         public decimal TotalAmount { get; set; }
         public decimal Discount { get; set; }
         public decimal NetAmount { get; set; }

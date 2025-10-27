@@ -30,6 +30,7 @@ namespace LbI.Products
                          {
                              Id = p.Id,
                              Name = p.Name,
+                             ShortName = p.ShortName,
                              Size = p.Size,
                              Type = p.Type,
                              PurchasePrice = p.PurchasePrice,
