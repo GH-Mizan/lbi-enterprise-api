@@ -54,6 +54,7 @@ namespace LbI.Purchases
             var query = (from p in await _purchaseRepo.GetAllAsync()
                          join s in await _supplierRepo.GetAllAsync() on p.SupplierId equals s.Id
                          join v in await _vehicleRepo.GetAllAsync() on p.StockPointId equals v.Id
+                         where filter.Date == null || p.Date.Date == filter.Date.Value.Date
                          select new PurchaseOutputDto()
                          {
                              Id = p.Id,
@@ -121,7 +122,7 @@ namespace LbI.Purchases
                      }).ToList();
             if (stockPointId != null) 
             { 
-                var stocks = await _inventoryRepo.GetAllListAsync(x=> x.StockPointId == stockPointId);
+                var stocks = await _inventoryRepo.GetAllListAsync(x=> x.StockPointId == stockPointId && !x.Damadged);
                 foreach (var item in output) 
                 {
                     var stock = stocks.Where(x => x.ProductId == item.ProductId).FirstOrDefault()?.StockQty;
@@ -246,7 +247,6 @@ namespace LbI.Purchases
                     {
                         ProductId = pd.ProductId,
                         StockPointId = vehicleId,
-                        ProductName = pd.ProductName,
                         StockQty = pd.Quantity,
                     };
                     await _inventoryRepo.InsertAsync(inventory);
@@ -482,6 +482,91 @@ namespace LbI.Purchases
             output.OverallDue = output.PreviousDue + output.TotalDue;
 
             return output;
+        }
+
+        public async Task<List<MonthlyPurchaseReportDto>> GetMonthlyPurchaseReportAsync(int month, int year)
+        {
+            try
+            {
+                var output = (await _supplierRepo.GetAllAsync()).Select((s) => new MonthlyPurchaseReportDto()
+                {
+                    SupplierId = s.Id,
+                    SupplierName = s.Name,
+                    
+                }).OrderBy(o => o.SupplierName).ToList();
+
+                var purchase = await _purchaseRepo.GetAllListAsync(x => x.Date.Year == year && x.Date.Month == month);
+                var purchaseDetails = await _purchaseDetailsRepo.GetAllListAsync(x => purchase.Select(s => s.Id).ToList().Contains(x.PurchaseId));
+                var products = await _productRepo.GetAllListAsync();
+
+                foreach (var item in output)
+                {
+                    var thisPurchaseIds = purchase.Where(x => x.SupplierId == item.SupplierId).Select(s => s.Id).ToList();
+                    var prices = purchaseDetails.Where(x => thisPurchaseIds.Contains(x.PurchaseId)).GroupBy(t => t.ProductId).Select(g => new
+                    {
+                        ProductId = g.Key,
+                        Quantity = g.Sum(s => s.Quantity),
+                        Amount = g.Sum(s => s.TotalPrice)
+                    }).ToList();
+
+                    foreach (var product in products)
+                    {
+                        var thisProfits = prices.Where(x => x.ProductId == product.Id).ToList();
+                        if (thisProfits.Count > 0)
+                        {
+                            if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
+                            {
+                                item.MedicalOxygen9_8Qty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
+                            {
+                                item.MedicalOxygen1_36Qty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
+                            {
+                                item.MedicalAir9_8Qty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
+                            {
+                                item.MedicalAir7Qty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
+                            {
+                                item.Nitros30KgQty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
+                            {
+                                item.Nitros5KgQty = thisProfits.Sum(s => s.Quantity);
+                            }
+                            else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
+                            {
+                                item.Nitros3KgQty = thisProfits.Sum(s => s.Quantity);
+                            }
+                        }
+                    }
+                    item.Amount = prices.Sum(s => s.Amount);
+                }
+
+                return output.OrderByDescending(o => o.Amount).Select((s, index) => new MonthlyPurchaseReportDto()
+                {
+                    Serial = (index + 1).ToString().PadLeft(2, '0'),
+                    SupplierId = s.SupplierId,
+                    SupplierName = s.SupplierName,
+                    Amount = s.Amount,
+                    MedicalOxygen9_8Qty = s.MedicalOxygen9_8Qty,
+                    MedicalOxygen1_36Qty = s.MedicalOxygen1_36Qty,
+                    MedicalAir9_8Qty = s.MedicalAir9_8Qty,
+                    MedicalAir7Qty = s.MedicalAir7Qty,
+                    Nitros30KgQty = s.Nitros30KgQty,
+                    Nitros5KgQty = s.Nitros5KgQty,
+                    Nitros3KgQty = s.Nitros3KgQty,
+                }).ToList();
+            }
+            catch (Exception ex) 
+            {
+                throw new UserFriendlyException(ex.Message);
+            }
+            
         }
     }
 }

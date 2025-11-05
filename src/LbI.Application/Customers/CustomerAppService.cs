@@ -95,7 +95,7 @@ namespace LbI.Customers
             {
                 Value = s.Id.ToString(),
                 DisplayText = s.Name
-            }).ToList();
+            }).OrderBy(o=> o.DisplayText).ToList();
         }
 
         public async Task<List<CustomerPriceDto>> GetCustomerPricesAsync(int customerId)

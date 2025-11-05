@@ -1,9 +1,11 @@
-﻿using Abp.Domain.Repositories;
+﻿using Abp.Application.Services.Dto;
+using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
 using Abp.UI;
 using LbI.Entities;
 using LbI.Enums;
+using LbI.Helpers;
 using LbI.Purchases.Dto;
 using LbI.VirtualItems.Dto;
 using LbI.VirtualStocks.Dto;
@@ -78,39 +80,38 @@ namespace LbI.VirtualStocks
                     };
                     foreach (var item in items)
                     {
-                        var stockDetail = thisStockDetails.FirstOrDefault(f => f.ProductId == item.Id);
-                        if (stockDetail != null)
+                        var sds = thisStockDetails.Where(f => f.ProductId == item.Id).ToList();
+                        var inQty = sds.Sum(s => s.In);
+                        var outQty = sds.Sum(s => s.Out);
+                        var stockQty = sds.Sum(s => s.StockQty);
+                        if (item.Type == ProductType.MedicalAir)
                         {
-                            if (item.Type == ProductType.MedicalAir)
-                            {
-                                vs.MedicalAirIn = stockDetail.In;
-                                vs.MedicalAirOut = stockDetail.Out;
-                                vs.MedicalAirStock = stockDetail.StockQty;
-                            }
-                            else if (item.Type == ProductType.Nitrous)
-                            {
-                                vs.NitrousIn = stockDetail.In;
-                                vs.NitrousOut = stockDetail.Out;
-                                vs.NitrousStock = stockDetail.StockQty;
-                            }
-                            else if (item.Name.Contains("1.36"))
-                            {
-                                vs.Oxygen136In = stockDetail.In;
-                                vs.Oxygen136Out = stockDetail.Out;
-                                vs.Oxygen136Stock = stockDetail.StockQty;
-                            }
-                            else
-                            {
-                                vs.Oxygen98In = stockDetail.In;
-                                vs.Oxygen98Out = stockDetail.Out;
-                                vs.Oxygen98Stock = stockDetail.StockQty;
-                            }
+                            vs.MedicalAirIn = inQty;
+                            vs.MedicalAirOut = outQty;
+                            vs.MedicalAirStock = stockQty;
                         }
-
+                        else if (item.Type == ProductType.Nitrous)
+                        {
+                            vs.NitrousIn = inQty;
+                            vs.NitrousOut = outQty;
+                            vs.NitrousStock = stockQty;
+                        }
+                        else if (item.Name.Contains("1.36"))
+                        {
+                            vs.Oxygen136In = inQty;
+                            vs.Oxygen136Out = outQty;
+                            vs.Oxygen136Stock = stockQty;
+                        }
+                        else
+                        {
+                            vs.Oxygen98In = inQty;
+                            vs.Oxygen98Out = outQty;
+                            vs.Oxygen98Stock = stockQty;
+                        }
                     }
                     output.Add(vs);
                 }
-                return output.OrderByDescending(o=> o.Id).ToList();
+                return output.OrderBy(o=> o.Date).ToList();
             }
             catch (Exception ex)
             {
@@ -256,20 +257,32 @@ namespace LbI.VirtualStocks
             await _virtualStockRepo.DeleteAsync(x => x.Id == id);
 
         }
-        public async Task<List<VirtualInventoryDto>> GetVirtualInventoryInfoAsync(int warehouseId, VirtualStockType type)
+        public async Task<VirtualInventoryInfoDto> GetVirtualInventoryInfoAsync(int warehouseId, VirtualStockType type)
         {
-            var output = (await _virtualInventoryRepo.GetAllAsync()).Where(x=> x.WarehouseId == warehouseId && x.VirtualStockType == type)
-                .Select(s=> new VirtualInventoryDto() { ProductId = s.ProductId, StockQty = s.StockQty}).ToList();
-
-            return output;
+            return new VirtualInventoryInfoDto()
+            {
+                LastDate  = (await _virtualStockRepo.GetAllAsync()).Where(x=> x.ClientId == warehouseId && x.VirtualStockType == type).OrderByDescending(o => o.Date).FirstOrDefault()?.Date,
+                Inventories = (await _virtualInventoryRepo.GetAllAsync()).Where(x => x.WarehouseId == warehouseId && x.VirtualStockType == type)
+                .Select(s => new VirtualInventoryDto() { ProductId = s.ProductId, StockQty = s.StockQty }).ToList()
+            };
         }
 
-        public async Task<GeneralStockOutputDto> GetGeneralStocksReportAsync(DateTime date)
+        public async Task<GeneralStockOutputDto> GetGeneralStocksReportAsync(DateTime date, VirtualStockType? type)
         {
-            var clients = await _customerRepo.GetAllListAsync(x => x.ActiveStatus);
-            var suppliers = await _supplierRepo.GetAllListAsync(x => x.ActiveStatus);
+            var clients = type == null || type ==VirtualStockType.ClientWarehouse ? await _customerRepo.GetAllListAsync(x => x.ActiveStatus) : new List<Customer>();
+            var suppliers = type == null || type == VirtualStockType.SupplierWarehouse ? await _supplierRepo.GetAllListAsync(x => x.ActiveStatus) : new List<Supplier>();
 
-            var virtualStocks = await _virtualStockRepo.GetAllListAsync(x => x.Date.Date == date.Date);
+            var virtualStocks = new List<VirtualStock>();
+            virtualStocks = await _virtualStockRepo.GetAllListAsync(x => x.Date.Date == date.Date && (type == null || x.VirtualStockType == type));
+            //if (!virtualStocks.Any())
+            //{
+            //    var lastDate = (await _virtualStockRepo.GetAllAsync()).Where(x=> x.Date.Date < date.Date && (type == null || x.VirtualStockType == type)).OrderByDescending(x => x.Date).FirstOrDefault()?.Date;
+            //    if(lastDate != null)
+            //    {
+            //        virtualStocks = await _virtualStockRepo.GetAllListAsync(x => x.Date.Date == lastDate.Value.Date && (type == null || x.VirtualStockType == type));
+            //    }
+            //}
+
             var virtualStockIds = virtualStocks.Select(s=>s.Id).ToList();
             var virtualStockDetails = await _virtualStockDetailRepo.GetAllListAsync(x => virtualStockIds.Contains(x.VirtualStockId));
             var products = await _virtualItemRepo.GetAllListAsync(x => x.ActiveStatus);
@@ -282,9 +295,22 @@ namespace LbI.VirtualStocks
             var output = new GeneralStockOutputDto();
             var outputDetails = new List<GeneralStockDetailsDto>();
 
+            var overallStocks = (from vs in await _virtualStockRepo.GetAllAsync()
+                                 join vsd in await _virtualStockDetailRepo.GetAllAsync() on vs.Id equals vsd.VirtualStockId
+                                 where vs.Date.Date < date.Date
+                                 select new
+                                 {
+                                     vs.Date,
+                                     WarehouseId = vs.ClientId,
+                                     vsd.VirtualStockId,
+                                     vs.VirtualStockType,
+                                     vsd.ProductId,
+                                     vsd.StockQty
+                                 }).ToList();
+
             foreach (var client in clients) 
             {
-                var virtualStockId = virtualStocks.FirstOrDefault(f=> f.ClientId == client.Id && f.VirtualStockType == VirtualStockType.ClientWarehouse)?.Id;
+                var virtualStockId = virtualStocks.OrderByDescending(o=> o.Date).FirstOrDefault(f=> f.ClientId == client.Id && f.VirtualStockType == VirtualStockType.ClientWarehouse)?.Id;
                 var details = virtualStockDetails.Where(x => x.VirtualStockId == virtualStockId).ToList();
                 var stock = new GeneralStockDetailsDto()
                 {
@@ -292,20 +318,31 @@ namespace LbI.VirtualStocks
                     WarehouseName = client.Name,
                     VirtualStockType = VirtualStockType.ClientWarehouse
                 };
-                if(virtualStockId != null)
-                {
-                    stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
-                    stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
-                    stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
-                    stock.NitrousOxide = details.FirstOrDefault(f => f.ProductId == nitrousId)?.StockQty ?? 0;
-                    stock.Total = stock.Oxygen136 + stock.Oxygen98 + stock.MedicalAir + stock.NitrousOxide;
-                }
+               
+                var thisOverallStocks = overallStocks.Where(x => x.WarehouseId == client.Id && x.VirtualStockType == VirtualStockType.ClientWarehouse && x.Date.Date < date.Date && x.StockQty > 0).ToList();
+                stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
+                if (stock.Oxygen136 == 0)
+                    stock.Oxygen136 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen136Id)?.StockQty ?? 0;
+
+                stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
+                if (stock.Oxygen98 == 0)
+                    stock.Oxygen98 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen98Id)?.StockQty ?? 0;
+
+                stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
+                if (stock.MedicalAir == 0)
+                    stock.MedicalAir = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == medicalAirId)?.StockQty ?? 0;
+
+                stock.NitrousOxide = details.FirstOrDefault(f => f.ProductId == nitrousId)?.StockQty ?? 0;
+                if (stock.NitrousOxide == 0)
+                    stock.NitrousOxide = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == nitrousId)?.StockQty ?? 0;
+
+                stock.Total = stock.Oxygen136 + stock.Oxygen98 + stock.MedicalAir + stock.NitrousOxide;
                 outputDetails.Add(stock);
             }
 
             foreach (var supplier in suppliers)
             {
-                var virtualStockId = virtualStocks.FirstOrDefault(f => f.ClientId == supplier.Id && f.VirtualStockType == VirtualStockType.SupplierWarehouse)?.Id;
+                var virtualStockId = virtualStocks.OrderByDescending(o => o.Date).FirstOrDefault(f => f.ClientId == supplier.Id && f.VirtualStockType == VirtualStockType.SupplierWarehouse)?.Id;
                 var details = virtualStockDetails.Where(x => x.VirtualStockId == virtualStockId).ToList();
                 var stock = new GeneralStockDetailsDto()
                 {
@@ -313,14 +350,26 @@ namespace LbI.VirtualStocks
                     WarehouseName = supplier.Name,
                     VirtualStockType = VirtualStockType.SupplierWarehouse
                 };
-                if (virtualStockId != null)
-                {
-                    stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
-                    stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
-                    stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
-                    stock.NitrousOxide = details.FirstOrDefault(f => f.ProductId == nitrousId)?.StockQty ?? 0;
-                    stock.Total = stock.Oxygen136 + stock.Oxygen98 + stock.MedicalAir + stock.NitrousOxide;
-                }
+
+                var thisOverallStocks = overallStocks.Where(x => x.WarehouseId == supplier.Id && x.VirtualStockType == VirtualStockType.SupplierWarehouse && x.Date.Date < date.Date && x.StockQty > 0).ToList();
+
+                stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
+                if (stock.Oxygen136 == 0)
+                    stock.Oxygen136 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen136Id)?.StockQty ?? 0;
+
+                stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
+                if (stock.Oxygen98 == 0)
+                    stock.Oxygen98 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen98Id)?.StockQty ?? 0;
+
+                stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
+                if (stock.MedicalAir == 0)
+                    stock.MedicalAir = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == medicalAirId)?.StockQty ?? 0;
+
+                stock.NitrousOxide = details.FirstOrDefault(f => f.ProductId == nitrousId)?.StockQty ?? 0;
+                if (stock.NitrousOxide == 0)
+                    stock.NitrousOxide = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == nitrousId)?.StockQty ?? 0;
+
+                stock.Total = stock.Oxygen136 + stock.Oxygen98 + stock.MedicalAir + stock.NitrousOxide;
                 outputDetails.Add(stock);
             }
 
@@ -336,12 +385,15 @@ namespace LbI.VirtualStocks
             return output;
         }
 
-        public async Task<List<OverallVirtualInventoriesOutput>> GetActualVirtualInventoriesAsync()
+        public async Task<List<OverallVirtualInventoriesOutput>> GetActualVirtualInventoriesAsync(VirtualStockType type, int? warehouseId, int? itemId)
         {
             try
             {
                 var output = (from i in await _virtualInventoryRepo.GetAllAsync()
                             join p in await _virtualItemRepo.GetAllAsync() on i.ProductId equals p.Id
+                            where i.VirtualStockType == type 
+                            && (warehouseId == null || i.WarehouseId == warehouseId) 
+                            && (itemId == null || i.ProductId == itemId)
                             select new OverallVirtualInventoriesOutput()
                             {
                                 ProductId = i.ProductId,
@@ -350,6 +402,7 @@ namespace LbI.VirtualStocks
                                 VirtualStockType = i.VirtualStockType,
                                 StockQty = i.StockQty
                             }).ToList();
+
                 var customers = await _customerRepo.GetAllListAsync();
                 var suppliers = await _supplierRepo.GetAllListAsync();
 
@@ -371,6 +424,11 @@ namespace LbI.VirtualStocks
             {
                 throw new UserFriendlyException(ex.Message);
             }
+        }
+
+        public List<ComboboxItemDto> GetStockTypesSelectListAsync()
+        {
+            return ((VirtualStockType[])Enum.GetValues(typeof(VirtualStockType))).Select(c => new ComboboxItemDto() { Value = ((int)c).ToString(), DisplayText = c.DisplayName() }).ToList();
         }
     }
 }

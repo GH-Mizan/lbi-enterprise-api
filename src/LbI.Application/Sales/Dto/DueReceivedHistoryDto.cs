@@ -7,6 +7,7 @@ namespace LbI.Sales.Dto
     {
         public int? Id { get; set; }
         public int SalesId { get; set; }
+        public int CustomerId { get; set; }
         public DateTime CreationTime { get; set; }
         public DateTime InvoiceDate { get; set; }
         public DateTime ReceiveDate { get; set; }
