@@ -20,5 +20,6 @@ namespace LbI.Sales.Dto
         public decimal Due { get; set; }
         public bool Default { get; set; }
         public string Remarks { get; set; }
+        public string UserName { get; set; }
     }
 }

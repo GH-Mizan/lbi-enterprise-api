@@ -3,6 +3,7 @@
     public enum VirtualStockType
     {
         ClientWarehouse = 1,
-        SupplierWarehouse
+        SupplierWarehouse,
+        StockPointWarehouse
     }
 }

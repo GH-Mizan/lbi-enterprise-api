@@ -63,7 +63,27 @@ public class RoleAppService : AsyncCrudAppService<Role, RoleDto, int, PagedRoleR
         return new ListResultDto<RoleListDto>(ObjectMapper.Map<List<RoleListDto>>(roles));
     }
 
-    public override async Task<RoleDto> UpdateAsync(RoleDto input)
+    //public override async Task<RoleDto> UpdateAsync(RoleDto input)
+    //{
+    //    CheckUpdatePermission();
+
+    //    var role = await _roleManager.GetRoleByIdAsync(input.Id);
+
+    //    ObjectMapper.Map(input, role);
+
+    //    CheckErrors(await _roleManager.UpdateAsync(role));
+
+    //    var grantedPermissions = PermissionManager
+    //        .GetAllPermissions()
+    //        .Where(p => input.GrantedPermissions.Contains(p.Name))
+    //        .ToList();
+
+    //    await _roleManager.SetGrantedPermissionsAsync(role, grantedPermissions);
+
+    //    return MapToEntityDto(role);
+    //}
+
+    public async Task<RoleDto> RoleUpdateAsync(RoleDto input)
     {
         CheckUpdatePermission();
 
@@ -83,7 +103,22 @@ public class RoleAppService : AsyncCrudAppService<Role, RoleDto, int, PagedRoleR
         return MapToEntityDto(role);
     }
 
-    public override async Task DeleteAsync(EntityDto<int> input)
+    //public override async Task DeleteAsync(EntityDto<int> input)
+    //{
+    //    CheckDeletePermission();
+
+    //    var role = await _roleManager.FindByIdAsync(input.Id.ToString());
+    //    var users = await _userManager.GetUsersInRoleAsync(role.NormalizedName);
+
+    //    foreach (var user in users)
+    //    {
+    //        CheckErrors(await _userManager.RemoveFromRoleAsync(user, role.NormalizedName));
+    //    }
+
+    //    CheckErrors(await _roleManager.DeleteAsync(role));
+    //}
+
+    public async Task RoleRemoveAsync(EntityDto<int> input)
     {
         CheckDeletePermission();
 

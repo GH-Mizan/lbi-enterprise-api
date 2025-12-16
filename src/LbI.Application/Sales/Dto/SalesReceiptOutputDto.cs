@@ -20,6 +20,7 @@ namespace LbI.Sales.Dto
         public decimal OverallDue { get; set; }
 
         public List<SalesRecieptProductDto> Details { get; set; }
+        public List<DueReceivedBreakdownDto> ReceivedBreakdown { get; set; }
     }
 
     public class SalesRecieptProductDto
@@ -28,6 +29,12 @@ namespace LbI.Sales.Dto
         public string Product { get; set; }
         public decimal UnitPrice { get; set; }
         public int Qty { get; set; }
+        public decimal Amount { get; set; }
+    }
+
+    public class DueReceivedBreakdownDto
+    {
+        public DateTime ReceivedDate { get; set; }
         public decimal Amount { get; set; }
     }
 

@@ -1,11 +1,12 @@
 ﻿using Abp.Application.Services.Dto;
 using Abp.Domain.Repositories;
-using LbI.Entities;
+using Castle.Core.Resource;
 using LbI.Employees.Dto;
+using LbI.Entities;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace LbI.Employees
 {
@@ -79,14 +80,14 @@ namespace LbI.Employees
         {
             if (input.Id.HasValue)
             {
-                var cuatomer = await _employeeRepo.GetAsync(input.Id.Value);
-                ObjectMapper.Map(input, cuatomer);
-                await _employeeRepo.UpdateAsync(cuatomer);
+                var customer = await _employeeRepo.GetAsync(input.Id.Value);
+                ObjectMapper.Map(input, customer);
+                await _employeeRepo.UpdateAsync(customer);
             }
             else
             {
-                var cuatomer = ObjectMapper.Map<Employee>(input);
-                await _employeeRepo.InsertAsync(cuatomer);
+                var customer = ObjectMapper.Map<Employee>(input);
+                await _employeeRepo.InsertAsync(customer);
             }
         }
 

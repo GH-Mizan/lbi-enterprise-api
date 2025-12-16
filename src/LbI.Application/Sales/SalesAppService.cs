@@ -3,15 +3,17 @@ using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
 using Abp.UI;
-using Castle.Core.Resource;
+using LbI.Authorization.Users;
 using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
 using LbI.Sales.Dto;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 
 namespace LbI.Sales
@@ -28,6 +30,7 @@ namespace LbI.Sales
         private readonly IRepository<PurchaseDetail> _purchaseDetailsRepo;
         private readonly IRepository<Customer> _customerRepo;
         private readonly IRepository<Employee> _employeeRepo;
+        private readonly IRepository<User, long> _userRepository;
         public SalesAppService(
             IRepository<Sale> salesRepo,
             IRepository<SaleDetail> salesDetailsRepo,
@@ -38,7 +41,8 @@ namespace LbI.Sales
             IRepository<PurchaseDetail> purchaseDetailsRepo,
             IRepository<DueReceivedHistory> dueReceivedHistoryRepo,
             IRepository<Customer> customerRepo,
-            IRepository<Employee> employeeRepo
+            IRepository<Employee> employeeRepo,
+            IRepository<User, long> userRepository
             )
         {
             _salesRepo = salesRepo;
@@ -51,15 +55,20 @@ namespace LbI.Sales
             _dueReceivedHistoryRepo = dueReceivedHistoryRepo;
             _customerRepo = customerRepo;
             _employeeRepo = employeeRepo;
+            _userRepository = userRepository;
         }
 
         public async Task<PagedResultDto<SalesOutputDto>> GetPaginatedSalesAsync(SalesFilterDto filter)
         {
-            var searchText = string.IsNullOrEmpty(filter.SearchText) ? null : filter.SearchText.ToLower();
+            var searchText = string.IsNullOrEmpty(filter.SearchText) ? null : filter.SearchText.ToLower().Trim();
             var query = (from s in await _salesRepo.GetAllAsync()
                          join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
                          join v in await _vehicleRepo.GetAllAsync() on s.StockPointId equals v.Id
-                         where filter.Date == null || s.Date.Date == filter.Date.Value.Date
+                         join u in await _userRepository.GetAllAsync() on s.CreatorUserId equals u.Id into users
+                         from u in users.DefaultIfEmpty()
+                         where (filter.Date == null || s.Date.Date == filter.Date.Value.Date) 
+                         && (filter.Month == -1 || s.Date.Month == filter.Month)
+                         && (filter.Year == -1 || s.Date.Year == filter.Year)
                          select new SalesOutputDto()
                          {
                              Id = s.Id,
@@ -78,16 +87,17 @@ namespace LbI.Sales
                              StockPointId = s.StockPointId,
                              StockPointName = v.Name,
                              Remarks = s.Remarks,
-                             Locked = s.Locked
+                             Locked = s.Locked,
+                             UserName = u.FullName
                          }).AsQueryable();
 
             if (searchText != null)
             {
                 query = query.Where(x =>
-                x.InvoiceNumber.ToLower().Contains(searchText) ||
-                x.ReferenceNumber.ToLower().Contains(searchText) ||
-                x.CustomerName.ToLower().Contains(searchText) ||
-                x.StockPointName.ToLower().Contains(searchText)
+                x.InvoiceNumber.ToLower().Trim().Contains(searchText) ||
+                x.ReferenceNumber.ToLower().Trim().Contains(searchText) ||
+                x.CustomerName.ToLower().Trim().Contains(searchText) ||
+                x.StockPointName.ToLower().Trim().Contains(searchText)
                 );
             }
 
@@ -265,8 +275,30 @@ namespace LbI.Sales
 
         public async Task<List<DueReceivedHistoryDto>> GetDueReceivedHistoriesAsync(int salesId)
         {
-            var histories = (await _dueReceivedHistoryRepo.GetAllListAsync(x => x.SalesId == salesId)).OrderBy(o => o.CreationTime).ToList();
-            return ObjectMapper.Map<List<DueReceivedHistoryDto>>(histories);
+            var histories = (from d in await _dueReceivedHistoryRepo.GetAllAsync()
+                     join u in await _userRepository.GetAllAsync() on d.CreatorUserId equals u.Id into users
+                             from u in users.DefaultIfEmpty()
+                             where d.SalesId == salesId
+                     select new DueReceivedHistoryDto()
+                     {
+                         Id = d.Id,
+                         SalesId = d.SalesId,
+                         CustomerId = d.CustomerId,
+                         CreationTime = d.CreationTime,
+                         InvoiceDate = d.InvoiceDate,
+                         ReceiveDate =d.ReceiveDate,
+                         InvoiceNumber = d.InvoiceNumber,
+                         PaymentStatus = d.PaymentStatus,
+                         GrandTotal = d.GrandTotal,
+                         Discount = d.Discount,
+                         NetTotal = d.NetTotal,
+                         TotalPaid = d.TotalPaid,
+                         Due = d.Due,
+                         Default = d.Default,
+                         Remarks = d.Remarks,
+                         UserName = u.FullName
+                     }).OrderBy(o => o.CreationTime).ToList();
+            return histories;
         }
 
         [UnitOfWork]
@@ -301,10 +333,11 @@ namespace LbI.Sales
 
         #region Reports
 
-        public async Task<List<SalesCollectionDueReportDto>> GetSalesCollectionDueReportAsync(int month, int year)
+        public async Task<SalesCollectionDueReportDto> GetSalesCollectionDueReportAsync(int month, int year)
         {
-            var output = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Year == year && x.Date.Month == month).OrderBy(x=> x.Date).Select(s=> new SalesCollectionDueReportDto()
+            var details = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Year == year && x.Date.Month == month).OrderBy(x=> x.Date).Select(s=> new SalesCollectionDueDetailsDto()
             {
+                Id = s.Id,
                 Date =s.Date,
                 TotalSales = s.NetAmount,
                 CurrentBalance = s.NetAmount,
@@ -317,15 +350,18 @@ namespace LbI.Sales
                 //DueBalance = s.DueAmount
             }).ToList();
 
-            output = output.GroupBy(t => t.Date.Date).Select(g => new SalesCollectionDueReportDto()
+            var saleIds = details.Select(x => x.Id).ToList();
+
+            details = details.GroupBy(t => t.Date.Date).Select(g => new SalesCollectionDueDetailsDto()
             {
                 Date = g.Key,
                 TotalSales = g.Sum(t => t.TotalSales),
                 CurrentBalance = g.Sum(t => t.CurrentBalance),
-                CashCollection = g.Sum(t => t.CashCollection),
+                //CashCollection = g.Sum(t => t.CashCollection),
                 //CurrenctDue = g.Sum(t => t.CurrenctDue),
             }).ToList();
 
+            //var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Year == year && x.ReceiveDate.Month == month && saleIds.Contains(x.SalesId)).AsQueryable();
             var histories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Year == year && x.ReceiveDate.Month == month).AsQueryable();
 
             var dueCollectionHistories = histories.Where(x => !x.Default).GroupBy(t => t.ReceiveDate.Date).Select(g => new
@@ -340,12 +376,41 @@ namespace LbI.Sales
                 CashCollection = g.Sum(t => t.TotalPaid)
             }).ToList();
 
+            var historiesDate = dueCollectionHistories.Select(s => s.Date).ToList();
+            historiesDate.AddRange(cashCollectionHistories.Where(x => !historiesDate.Contains(x.Date)).Select(s => s.Date).ToList());
+            var outputDate = details.Select(s => s.Date.Date).ToList();
+            var remainindDates = historiesDate.Except(outputDate);
+            if (remainindDates.Any())
+            {
+                foreach (var date in remainindDates)
+                {
+                    details.Add(new SalesCollectionDueDetailsDto()
+                    {
+                        Date = date,
+                        TotalSales = 0,
+                        CurrentBalance = 0,
+                    });
+                }
+            }
+
+            details.OrderBy(o => o.Date).ToList();
+
+            //var prevDay = (new DateTime(year, month, 1)).AddTicks(-1);
+            //var prevSales = (await _salesRepo.GetAllAsync()).Where(x => x.Date <= prevDay).Sum(s => s.NetAmount);
+            //var prevHistories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate <= prevDay).AsQueryable();
+            //var prevDueCollection = prevHistories.Where(x => !x.Default).Sum(s => s.TotalPaid);
+            //var prevCashCollection = prevHistories.Where(x => x.Default).Sum(s => s.TotalPaid);
+            //var prevDue = prevSales - prevCashCollection;
+
             var firstItem = true;
+            //decimal lastCurrentBalance = prevSales;
+            //decimal lastCollectedBalance = prevCashCollection + prevDueCollection;
+            //decimal lastDueBalance = prevDue - prevDueCollection;
             decimal lastCurrentBalance = 0;
             decimal lastCollectedBalance = 0;
             decimal lastDueBalance = 0;
 
-            foreach (var item in output)
+            foreach (var item in details)
             {
                 var dueCollectionHistorHistory = dueCollectionHistories.Where(x => x.Date.Date == item.Date.Date).FirstOrDefault();
                 var cashCollectionHistorHistory = cashCollectionHistories.Where(x => x.Date.Date == item.Date.Date).FirstOrDefault();
@@ -371,16 +436,51 @@ namespace LbI.Sales
                 lastCollectedBalance = item.CollectedBalance;
                 lastDueBalance = item.DueBalance;
             }
-            var firstDayOfMonth = new DateTime(year, month, 1);
-            var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
-            for (var day = firstDayOfMonth.Date; day <= lastDayOfMonth.Date; day = day.AddDays(1))
+
+            //var firstDayOfMonth = new DateTime(year, month, 1);
+            //var lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
+            //for (var day = firstDayOfMonth.Date; day <= lastDayOfMonth.Date; day = day.AddDays(1))
+            //{
+            //    if(!output.Any(x=> x.Date.Date == day))
+            //    {
+            //        output.Add(new SalesCollectionDueReportDto() { Date = day, Empty = true});
+            //    }
+            //}
+
+            //var lastDayOfPrevMonth = firstDayOfMonth.AddDays(-1);
+            var lastDayOfPrevMonth = (new DateTime(year, month, 1)).AddTicks(-1);
+            var prevSales = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Date <= lastDayOfPrevMonth.Date).Select(s => new 
             {
-                if(!output.Any(x=> x.Date.Date == day))
-                {
-                    output.Add(new SalesCollectionDueReportDto() { Date = day, Empty = true});
-                }
-            }
-            return output.OrderBy(o=> o.Date.Date).ToList();
+                s.Id,
+                s.NetAmount,
+            }).ToList();
+            var prevSaleIds = prevSales.Select(s => s.Id).ToList();
+            var prevTotalSales = prevSales.Sum(s=> s.NetAmount);
+            //var prevHistories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date <= lastDayOfPrevMonth.Date && prevSaleIds.Contains(x.SalesId)).AsQueryable();
+            var prevHistories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date <= lastDayOfPrevMonth.Date).AsQueryable();
+            var prevDueCollection = prevHistories.Where(x => !x.Default).Sum(s => s.TotalPaid);
+            var prevCashCollection = prevHistories.Where(x => x.Default).Sum(s=> s.TotalPaid);
+            //var prevCurrentDue = prevTotalSales - prevCashCollection;
+            //var prevDueBalance = prevCurrentDue - prevDueCollection;
+            
+            var initialDue = (await _customerRepo.GetAllAsync()).Where(x => x.InitialDue > 0).Sum(s => s.InitialDue);
+            var prevDueBalance = initialDue + prevTotalSales - prevCashCollection - prevDueCollection;
+
+            //output.Insert(0, new SalesCollectionDueReportDto()
+            //{
+            //    Date = prevDay,
+            //    CurrentBalance = prevSales,
+            //    CollectedBalance = prevCashCollection + prevDueCollection,
+            //    DueBalance = prevDue - prevDueCollection
+            //});
+
+            return new SalesCollectionDueReportDto()
+            {
+                Details = details.OrderBy(o => o.Date.Date).ToList(),
+                LastDate = lastDayOfPrevMonth,
+                DueBalance = lastDueBalance,
+                PrevBalance = prevDueBalance
+            };
         }
 
         public async Task<DailySalesReportDto> GetDailySalesReportAsync(DateTime date)
@@ -489,27 +589,27 @@ namespace LbI.Sales
                 details.Add(item);
             }
 
-            var customerIds = details.Select(x => x.CustomerId).ToList();
-            if (customerIds.Count > customerIds.Distinct().Count()) { 
-                details = details.GroupBy(t => t.CustomerId).Select(g => new DailySalesReportDetailsDto()
-                {
-                    CustomerId = g.Key,
-                    CustomerName = g.First().CustomerName,
-                    InvoiceNo = g.First().InvoiceNo,
-                    PaymentStatus = g.First().PaymentStatus,
-                    PaymentStatusText = g.First().PaymentStatusText,
-                    NetAmount = g.Sum(t => t.NetAmount),
-                    PaidAmount = g.Sum(t => t.PaidAmount),
-                    DueAmount = g.Sum(t => t.DueAmount),
-                    MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
-                    MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
-                    MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
-                    MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
-                    Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
-                    Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
-                    Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
-                }).ToList();
-            }
+            //var customerIds = details.Select(x => x.CustomerId).ToList();
+            //if (customerIds.Count > customerIds.Distinct().Count()) { 
+            //    details = details.GroupBy(t => t.CustomerId).Select(g => new DailySalesReportDetailsDto()
+            //    {
+            //        CustomerId = g.Key,
+            //        CustomerName = g.First().CustomerName,
+            //        InvoiceNo = g.First().InvoiceNo,
+            //        PaymentStatus = g.First().PaymentStatus,
+            //        PaymentStatusText = g.First().PaymentStatusText,
+            //        NetAmount = g.Sum(t => t.NetAmount),
+            //        PaidAmount = g.Sum(t => t.PaidAmount),
+            //        DueAmount = g.Sum(t => t.DueAmount),
+            //        MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
+            //        MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
+            //        MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
+            //        MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
+            //        Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
+            //        Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
+            //        Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
+            //    }).ToList();
+            //}
 
             dueCollectionHistories = dueCollectionHistories.GroupBy(t => t.CustomerId).Select(g => new
             {
@@ -603,7 +703,19 @@ namespace LbI.Sales
                     s.NetAmount
                 }).ToList();
 
-            if (!sales.Any())
+            var details = new List<CustomerLedgerDetailsDto>();
+            //var histories = (await _dueReceivedHistoryRepo.GetAllListAsync(x => x.CustomerId == customerId && x.ReceiveDate.Year == year && x.ReceiveDate.Month == month);
+            var histories = (await _dueReceivedHistoryRepo.GetAllAsync())
+                .Where(x => x.CustomerId == customerId && x.ReceiveDate.Year == year && x.ReceiveDate.Month == month)
+                .GroupBy(t => t.ReceiveDate.Date).Select(g => new
+                {
+                    ReceiveDate = g.Key,
+                    TotalPaid = g.Sum(s => s.TotalPaid)
+                }).ToList();
+
+            decimal lastBalance = prevBalance;
+            if (!sales.Any() && !histories.Any())
+            {
                 return new CustomerLedgerReportDto()
                 {
                     Details = new List<CustomerLedgerDetailsDto>()
@@ -615,106 +727,65 @@ namespace LbI.Sales
                         }
                     }
                 };
+                //foreach (var h in histories)
+                //{
+                //    var ls = new CustomerLedgerDetailsDto()
+                //    {
+                //        Date = h.ReceiveDate,
+                //        CreditTotal = 0,
+                //        DebitTotal = h.TotalPaid
+                //    };
+                //    ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
+                //    lastBalance = ls.Balance;
+
+                //    details.Add(ls);
+                //}
+            }
 
             var dateWiseSales = sales.GroupBy(t => t.Date.Date).Select(g => new
             {
                 Date = g.Key,
                 NetAmount = g.Sum(s => s.NetAmount),
-                //PaidAmount = g.Sum(s => s.PaidAmount)
                 SaleIds = g.Select(s=>s.Id).ToList()
-            }).OrderBy(o => o.Date).ToList();
+            }).ToList();
+
+            if(histories.Any(x=> !sales.Select(s=> s.Date).ToList().Contains(x.ReceiveDate)))
+            {
+                foreach (var h in histories)
+                {
+                    if(!sales.Any(x=> x.Date == h.ReceiveDate))
+                    {
+                        dateWiseSales.Add(new
+                        {
+                            Date = h.ReceiveDate,
+                            NetAmount = 0M,
+                            SaleIds = new List<int>()
+                        });
+                    }
+                }
+            }
+
+            dateWiseSales = dateWiseSales.OrderBy(o => o.Date).ToList();
 
             var saleIds = sales.Select(s=> s.Id).ToList();
             var saleDetails = await _salesDetailsRepo.GetAllListAsync(x => saleIds.Contains(x.SaleId));
             //var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => saleIds.Contains(x.SalesId));
-            var histories = await _dueReceivedHistoryRepo.GetAllListAsync(x => x.CustomerId == customerId && x.ReceiveDate.Year == year && x.ReceiveDate.Month == month);
+            
             var products = await _productRepo.GetAllListAsync();
 
-            var details = new List<CustomerLedgerDetailsDto>();
-            decimal lastBalance = prevBalance;
-
-            //int daysInMonth = DateTime.DaysInMonth(year, month);
-            //IEnumerable<DateTime> daysOfMonth = Enumerable.Range(1, daysInMonth).Select(day => new DateTime(year, month, day));
-            //foreach (DateTime day in daysOfMonth)
-            //{
-            //    var s = dateWiseSales.FirstOrDefault(f => f.Date == day.Date);
-            //    if(s != null)
-            //    {
-            //        var thisSaleDetails = saleDetails.Where(x => s.SaleIds.Contains(x.SaleId)).ToList();
-            //        var thisHistories = histories.Where(x => x.ReceiveDate.Date == s.Date).ToList();
-            //        var ls = new CustomerLedgerDetailsDto()
-            //        {
-            //            Date = s.Date,
-            //            CreditTotal = s.NetAmount,
-            //            DebitTotal = thisHistories.Sum(s => s.TotalPaid)
-            //        };
-            //        ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
-            //        lastBalance = ls.Balance;
-
-            //        foreach (var product in products)
-            //        {
-            //            var thisProductsSales = thisSaleDetails.Where(x => x.ProductId == product.Id && saleIds.Contains(x.SaleId)).ToList();
-            //            var qty = thisProductsSales.Sum(s => s.Quantity);
-            //            if (thisProductsSales.Count > 0)
-            //            {
-            //                if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalOxygen)
-            //                {
-            //                    ls.MedicalOxygen9_8Qty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.OnePointThreeSix && product.Type == ProductType.MedicalOxygen)
-            //                {
-            //                    ls.MedicalOxygen1_36Qty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.NinePointEightZero && product.Type == ProductType.MedicalAir)
-            //                {
-            //                    ls.MedicalAir9_8Qty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.SevenPointZeroZero && product.Type == ProductType.MedicalAir)
-            //                {
-            //                    ls.MedicalAir7Qty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.ThirtyKG && product.Type == ProductType.Nitrous)
-            //                {
-            //                    ls.Nitros30KgQty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.FiveKG && product.Type == ProductType.Nitrous)
-            //                {
-            //                    ls.Nitros5KgQty = qty;
-            //                }
-            //                else if (product.Size == ProductSize.ThreeKG && product.Type == ProductType.Nitrous)
-            //                {
-            //                    ls.Nitros3KgQty = qty;
-            //                }
-            //            }
-            //        }
-
-            //        details.Add(ls);
-            //    }
-            //    else
-            //    {
-            //        var thisHistories = histories.Where(x => x.ReceiveDate.Date == day.Date).ToList();
-            //        var ls = new CustomerLedgerDetailsDto()
-            //        {
-            //            Date = day.Date,
-            //            CreditTotal = 0,
-            //            DebitTotal = thisHistories.Sum(s => s.TotalPaid)
-            //        };
-            //        ls.Balance = ls.DebitTotal + lastBalance;
-            //        lastBalance = ls.Balance;
-            //        details.Add(ls);
-            //    }
-            //}
+            
+            
 
             foreach (var s in dateWiseSales)
             {
                 //var thisSaleIds = sales.Where(x => x.Date == s.Date).Select(s => s.Id).ToList();
                 var thisSaleDetails = saleDetails.Where(x => s.SaleIds.Contains(x.SaleId)).ToList();
-                var thisHistories = histories.Where(x => x.ReceiveDate.Date == s.Date).ToList();
+                //var thisHistories = histories.Where(x => x.ReceiveDate.Date == s.Date).ToList();
                 var ls = new CustomerLedgerDetailsDto()
                 {
                     Date = s.Date,
                     CreditTotal = s.NetAmount,
-                    DebitTotal = thisHistories.Sum(s => s.TotalPaid)
+                    DebitTotal = histories.FirstOrDefault(x => x.ReceiveDate.Date == s.Date)?.TotalPaid ?? 0
                 };
                 ls.Balance = ls.CreditTotal - ls.DebitTotal + lastBalance;
                 lastBalance = ls.Balance;
@@ -941,63 +1012,12 @@ namespace LbI.Sales
 
         public async Task<List<CustomerOverallDueReportDto>> GetCustomersOverallDueReportAsync(int month, int year)
         {
-            //var output = (await _customerRepo.GetAllAsync()).Select(s => new CustomerOverallDueReportDto()
-            //{
-            //    CustomerId = s.Id,
-            //    CustomerName = s.Name,
-            //    PreviousDue = s.InitialDue
-            //}).ToList();
-
-            //var prevDate = startDate.Date.AddDays(-1);
-            //var prevDues = await _salesRepo.GetAllListAsync(x => x.Date.Date <= prevDate.Date && x.DueAmount > 0);
-            //var sales = await _salesRepo.GetAllListAsync(x => x.Date.Date >= startDate.Date && x.Date.Date <= endDate.Date);
-
-            //var count = 1;
-            //foreach (var item in output) 
-            //{
-            //    if(output.Count > 99)
-            //        item.Serial = count.ToString().PadLeft(3, '0');
-            //    else
-            //        item.Serial = count.ToString().PadLeft(2, '0');
-
-            //    var thisPrevDue = prevDues.Where(x => x.CustomerId == item.CustomerId).Sum(x => x.DueAmount);
-            //    var thisSales = sales.Where(x => x.CustomerId == item.CustomerId);
-
-            //    item.PreviousDue = item.PreviousDue + thisPrevDue;
-            //    item.CurrentSales = thisSales.Sum(x => x.NetAmount);
-            //    item.CurrentPaymnet = thisSales.Sum(x => x.PaidAmount);
-            //    item.CurrentDue = item.PreviousDue + item.CurrentSales - item.CurrentPaymnet;
-
-            //    count++;
-            //}
             var prevDay = (new DateTime(year, month, 1)).AddTicks(-1);
-            //var prevMonth = prevDay.Month;
-            //var prevYear = prevDay.Year;
 
-            //var prevSales = await _salesRepo.GetAllListAsync(x => x.Date.Year == prevYear && x.Date.Month == prevMonth);
-            //var prevSaleIds = prevSales.Select(s => s.Id).ToList();
-            //var prevSalesHistories = (await _dueReceivedHistoryRepo.GetAllAsync()).Where()
+            var prevSalesQuery = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Date <= prevDay.Date).AsQueryable();
+            var prevSaleIds = prevSalesQuery.Select(s => s.Id).ToList();
 
-            //var prevSales = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Month <= prevMonth && x.Date.Year <= prevYear).GroupBy(t => t.CustomerId).Select(async g => new
-            //{
-            //    CustomerId = g.Key,
-            //    Sales = g.Sum(s => s.NetAmount),
-            //    Payment = _dueReceivedHistoryRepo.GetAllAsync().GetAwaiter().GetResult().Where(x=> x.ReceiveDate.Month <= prevMonth && x.ReceiveDate.Year <= prevYear).Sum(s=>s.TotalPaid)
-            //}).AsQueryable();
-
-            //var prevPayment = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate <= prevDay && x.CustomerId == customerId).Sum(s => s.TotalPaid);
-
-            //var initialDue = (await _customerRepo.SingleAsync(x => x.Id == customerId)).InitialDue;
-            //var prevSaleAmount = (await _salesRepo.GetAllAsync()).Where(x => x.Date <= prevDay && x.CustomerId == customerId).Sum(s => s.NetAmount);
-
-            var prevHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate <= prevDay).GroupBy(t => t.CustomerId).Select(g => new
-            {
-                CustomerId = g.Key,
-                Payment = g.Sum(s => s.TotalPaid)
-            }).ToList();
-
-            var prevSales = (from s in (await _salesRepo.GetAllAsync())
-                              .Where(x => x.Date <= prevDay).GroupBy(t => t.CustomerId)
+            var prevSales = (from s in prevSalesQuery.GroupBy(t => t.CustomerId)
                               .Select(g => new
                               {
                                   CustomerId = g.Key,
@@ -1012,105 +1032,41 @@ namespace LbI.Sales
                                  CurrentSales = s.TotalSales
                              }).ToList();
 
-            //var prevSales = (from c in await _customerRepo.GetAllAsync()
-            //                 join s in (await _salesRepo.GetAllAsync())
-            //                   .Where(x => x.Date <= prevDay).GroupBy(t => t.CustomerId)
-            //                   .Select(g => new
-            //                   {
-            //                       CustomerId = g.Key,
-            //                       TotalSales = g.Sum(s => s.NetAmount)
-            //                   }) on c.Id equals s.CustomerId into cs
-            //                   from s in cs.DefaultIfEmpty()
-            //                 select new CustomerOverallDueReportDto()
-            //                 {
-            //                     CustomerId = s.CustomerId,
-            //                     InitialDue = c.InitialDue,
-            //                     CurrentSales = s.TotalSales
-            //                 }).ToList();
-
-
-
-            //(from s in (await _salesRepo.GetAllAsync())
-            //                 .Where(x => x.Date <= prevDay).GroupBy(t => t.CustomerId)
-            //                 .Select(g => new
-            //                 {
-            //                     CustomerId = g.Key,
-            //                     TotalSales = g.Sum(s => s.NetAmount)
-            //                 })
-            //                join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id into customers
-            //                from c in customers.DefaultIfEmpty()
-            //                select new CustomerOverallDueReportDto()
-            //                {
-            //                    CustomerId = s.CustomerId,
-            //                    InitialDue = c.InitialDue,
-            //                    CurrentSales = s.TotalSales
-            //                }).ToList();
-
-            //var prevSales = (from h in (await _dueReceivedHistoryRepo.GetAllAsync())
-            //                 //.Where(x => x.ReceiveDate.Month <= prevMonth && x.ReceiveDate.Year <= prevYear).GroupBy(t => t.SalesId)
-            //                 .Where(x => x.ReceiveDate <= prevDay).GroupBy(t => t.SalesId)
-            //                 .Select(g => new
-            //                 {
-            //                     SaleId = g.Key,
-            //                     TotalPaid = g.Sum(s => s.TotalPaid)
-            //                 })
-            //                 join s in await _salesRepo.GetAllAsync() on h.SaleId equals s.Id
-            //                 join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
-            //                 select new
-            //                 {
-            //                     s.CustomerId,
-            //                     //CustomerName = c.Name,
-            //                     c.InitialDue,
-            //                     s.NetAmount,
-            //                     h.TotalPaid
-            //                 }).GroupBy(t => t.CustomerId).Select(g => new CustomerOverallDueReportDto()
-            //                 {
-            //                     CustomerId = g.Key,
-            //                     //CustomerName = g.FirstOrDefault().CustomerName,
-            //                     InitialDue = g.FirstOrDefault().InitialDue,
-            //                     CurrentSales = g.Sum(s => s.NetAmount),
-            //                     CurrentPaymnet = g.Sum(s => s.TotalPaid)
-            //                 }).ToList();
-            foreach (var ps in prevSales)
-            {
-                var payment = prevHistory.FirstOrDefault(f => f.CustomerId == ps.CustomerId)?.Payment ?? 0;
-                ps.CurrentDue = ps.CurrentSales - payment + ps.InitialDue; 
-            }
-
-            var currentHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x=> x.ReceiveDate.Month == month && x.ReceiveDate.Year == year).GroupBy(t => t.CustomerId).Select(g => new
+            var prevHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Date <= prevDay.Date).GroupBy(t => t.CustomerId).Select(g => new
             {
                 CustomerId = g.Key,
                 Payment = g.Sum(s => s.TotalPaid)
             }).ToList();
 
-            var data = (from s in await _salesRepo.GetAllAsync()
-                      join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
-                      where s.Date.Month == month && s.Date.Year == year
-                      select new
-                      {
-                          s.CustomerId,
-                          c.InitialDue,
-                          CustomerName = c.Name,
-                          s.NetAmount
-                      }).GroupBy(t => t.CustomerId).Select(g => new CustomerOverallDueReportDto()
-                      {
-                          CustomerId = g.Key,
-                          InitialDue = g.FirstOrDefault().InitialDue,
-                          CustomerName = g.FirstOrDefault().CustomerName,
-                          CurrentSales = g.Sum(s=> s.NetAmount)
-                      }).ToList();
+            foreach (var ps in prevSales)
+            {
+                var payment = prevHistory.FirstOrDefault(f => f.CustomerId == ps.CustomerId)?.Payment ?? 0;
+                ps.CurrentDue = ps.CurrentSales - payment + ps.InitialDue;
+            }
 
-            //var count = 1;
-            //foreach (var item in output)
-            //{
-            //    item.CurrentPaymnet = currentHistory.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.Payment ?? 0;
-            //    item.Serial = count.ToString().PadLeft(3, '0');
-            //    var initialDue = prevSales.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.CurrentDue;
-            //    if (initialDue != null)
-            //        item.InitialDue = initialDue.Value;
-            //    item.CurrentDue = item.CurrentSales - item.CurrentPaymnet + item.InitialDue;
-            //}
+            var salesQuery = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Month == month && x.Date.Year == year).AsQueryable();
+            var saleIds = salesQuery.Select(s => s.Id).ToList();
+            var currentHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate.Month == month && x.ReceiveDate.Year == year).GroupBy(t => t.CustomerId).Select(g => new
+            {
+                CustomerId = g.Key,
+                Payment = g.Sum(s => s.TotalPaid)
+            }).ToList();
 
+            var data = (from s in salesQuery
+                        join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
+                        select new
+                        {
+                            s.CustomerId,
+                            c.InitialDue,
+                            CustomerName = c.Name,
+                            s.NetAmount
+                        }).GroupBy(t => t.CustomerId).Select(g => new CustomerOverallDueReportDto()
+                        {
+                            CustomerId = g.Key,
+                            InitialDue = g.FirstOrDefault().InitialDue,
+                            CustomerName = g.FirstOrDefault().CustomerName,
+                            CurrentSales = g.Sum(s => s.NetAmount)
+                        }).ToList();
 
             var output = (await _customerRepo.GetAllAsync()).Where(x => x.ActiveStatus).Select(s => new CustomerOverallDueReportDto()
             {
@@ -1120,7 +1076,7 @@ namespace LbI.Sales
             }).ToList();
 
             var count = 1;
-            foreach (var item in output) 
+            foreach (var item in output)
             {
                 item.Serial = count.ToString().PadLeft(3, '0');
                 item.CurrentSales = data.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.CurrentSales ?? 0;
@@ -1129,77 +1085,85 @@ namespace LbI.Sales
                 if (initialDue != null)
                     item.InitialDue = initialDue.Value;
                 item.CurrentDue = item.CurrentSales - item.CurrentPaymnet + item.InitialDue;
-                
-                count++;   
-            }
 
-            //    var output = (from h in (await _dueReceivedHistoryRepo.GetAllAsync())
-            //                 .Where(x => x.ReceiveDate.Month == month && x.ReceiveDate.Year == year).GroupBy(t => t.SalesId)
-            //                 .Select(g => new
-            //                 {
-            //                     SaleId = g.Key,
-            //                     TotalPaid = g.Sum(s => s.TotalPaid)
-            //                 })
-            //                 join s in await _salesRepo.GetAllAsync() on h.SaleId equals s.Id
-            //                 join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
-            //                 select new
-            //                 {
-            //                     s.CustomerId,
-            //                     CustomerName = c.Name,
-            //                     c.InitialDue,
-            //                     s.NetAmount,
-            //                     h.TotalPaid
-            //                 }).GroupBy(t => t.CustomerId).Select(g => new CustomerOverallDueReportDto()
-            //                 {
-            //                     CustomerId = g.Key,
-            //                     CustomerName = g.FirstOrDefault().CustomerName,
-            //                     //InitialDue = g.FirstOrDefault().InitialDue,
-            //                     CurrentSales = g.Sum(s => s.NetAmount),
-            //                     CurrentPaymnet = g.Sum(s => s.TotalPaid)
-            //                 }).OrderBy(o => o.CustomerName).ToList();
-            //var count = 1;
-            //foreach (var item in output)
+                count++;
+            }
+            return output;
+
+            //var prevDay = (new DateTime(year, month, 1)).AddTicks(-1);
+
+            //var prevHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.ReceiveDate <= prevDay).GroupBy(t => t.CustomerId).Select(g => new
             //{
-            //    item.Serial = count.ToString().PadLeft(3, '0');
-            //    item.InitialDue = prevSales.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.CurrentDue ?? 0;
-            //    item.CurrentDue = item.CurrentSales - item.CurrentPaymnet + item.InitialDue;
-            //    count++;
+            //    CustomerId = g.Key,
+            //    Payment = g.Sum(s => s.TotalPaid)
+            //}).ToList();
+
+
+            //var prevSales = (from s in (await _salesRepo.GetAllAsync())
+            //                  .Where(x => x.Date <= prevDay).GroupBy(t => t.CustomerId)
+            //                  .Select(g => new
+            //                  {
+            //                      CustomerId = g.Key,
+            //                      TotalSales = g.Sum(s => s.NetAmount)
+            //                  })
+            //                 join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id into customers
+            //                 from c in customers.DefaultIfEmpty()
+            //                 select new CustomerOverallDueReportDto()
+            //                 {
+            //                     CustomerId = s.CustomerId,
+            //                     InitialDue = c.InitialDue,
+            //                     CurrentSales = s.TotalSales
+            //                 }).ToList();
+            //foreach (var ps in prevSales)
+            //{
+            //    var payment = prevHistory.FirstOrDefault(f => f.CustomerId == ps.CustomerId)?.Payment ?? 0;
+            //    ps.CurrentDue = ps.CurrentSales - payment + ps.InitialDue; 
             //}
 
+            //var currentHistory = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x=> x.ReceiveDate.Month == month && x.ReceiveDate.Year == year).GroupBy(t => t.CustomerId).Select(g => new
+            //{
+            //    CustomerId = g.Key,
+            //    Payment = g.Sum(s => s.TotalPaid)
+            //}).ToList();
 
+            //var data = (from s in await _salesRepo.GetAllAsync()
+            //          join c in await _customerRepo.GetAllAsync() on s.CustomerId equals c.Id
+            //          where s.Date.Month == month && s.Date.Year == year
+            //          select new
+            //          {
+            //              s.CustomerId,
+            //              c.InitialDue,
+            //              CustomerName = c.Name,
+            //              s.NetAmount
+            //          }).GroupBy(t => t.CustomerId).Select(g => new CustomerOverallDueReportDto()
+            //          {
+            //              CustomerId = g.Key,
+            //              InitialDue = g.FirstOrDefault().InitialDue,
+            //              CustomerName = g.FirstOrDefault().CustomerName,
+            //              CurrentSales = g.Sum(s=> s.NetAmount)
+            //          }).ToList();
 
-           // var query = (await _salesRepo.GetAllAsync()).GroupBy(t => t.CustomerId).Select(g => new
-           // {
-           //     CustomerId = g.Key,
-           //     Sales = g.Sum(s=> s.NetAmount),
-           //     Payment = g.Sum(s=> s.PaidAmount),
-           //     Due = g.Sum(s=> s.DueAmount)
-           // }).AsQueryable();
+            //var output = (await _customerRepo.GetAllAsync()).Where(x => x.ActiveStatus).Select(s => new CustomerOverallDueReportDto()
+            //{
+            //    CustomerId = s.Id,
+            //    CustomerName = s.Name,
+            //    InitialDue = s.InitialDue
+            //}).ToList();
 
-           //var output = (from q in query
-           //           join c in await _customerRepo.GetAllAsync() on q.CustomerId equals c.Id
-           //           select new CustomerOverallDueReportDto()
-           //           {
-           //               CustomerId = q.CustomerId,
-           //               CustomerName = c.Name,
-           //               InitialDue = c.InitialDue,
-           //               CurrentSales = q.Sales,
-           //               CurrentPaymnet = q.Payment,
-           //               CurrentDue = q.Due + c.InitialDue
-           //           }).OrderBy(o => o.CustomerName).ToList();
+            //var count = 1;
+            //foreach (var item in output) 
+            //{
+            //    item.Serial = count.ToString().PadLeft(3, '0');
+            //    item.CurrentSales = data.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.CurrentSales ?? 0;
+            //    item.CurrentPaymnet = currentHistory.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.Payment ?? 0;
+            //    var initialDue = prevSales.FirstOrDefault(f => f.CustomerId == item.CustomerId)?.CurrentDue;
+            //    if (initialDue != null)
+            //        item.InitialDue = initialDue.Value;
+            //    item.CurrentDue = item.CurrentSales - item.CurrentPaymnet + item.InitialDue;
 
-           // output = output.Select((item, index) => new CustomerOverallDueReportDto()
-           // {
-           //     Serial = (index+1).ToString().PadLeft(3, '0'),
-           //     CustomerId = item.CustomerId,
-           //     CustomerName = item.CustomerName,
-           //     InitialDue = item.InitialDue,
-           //     CurrentSales = item.CurrentSales,
-           //     CurrentPaymnet = item.CurrentPaymnet,
-           //     CurrentDue = item.CurrentDue
-           // }).ToList();
-
-            return output;
+            //    count++;   
+            //}
+            //return output;
         }
 
         public async Task<List<MonthlySalesRankingReportDto>> GetMonthlySalesRankingReportAsync(int month, int year)
@@ -1317,9 +1281,16 @@ namespace LbI.Sales
                                     Amount = sd.TotalPrice
                                 }).ToList();
 
+            var dueReceivedBreakdown = (await _dueReceivedHistoryRepo.GetAllAsync()).Where(x => x.SalesId == saleId &&x.TotalPaid > 0).Select(s => new DueReceivedBreakdownDto()
+            {
+                ReceivedDate = s.ReceiveDate,
+                Amount = s.TotalPaid
+            }).OrderBy(o=> o.ReceivedDate).ToList();
+
             output.Details = salesDetails;
             output.PreviousDue = (await _salesRepo.GetAllAsync()).Where(s => s.Id < saleId && s.DueAmount > 0 && s.CustomerId == output.CustomerId).Sum(s => s.DueAmount);
             output.OverallDue = output.PreviousDue + output.TotalDue;
+            output.ReceivedBreakdown = dueReceivedBreakdown;   
 
             return output;
         }

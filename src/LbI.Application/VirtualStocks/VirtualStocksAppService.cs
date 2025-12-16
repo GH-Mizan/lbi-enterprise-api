@@ -271,6 +271,7 @@ namespace LbI.VirtualStocks
         {
             var clients = type == null || type ==VirtualStockType.ClientWarehouse ? await _customerRepo.GetAllListAsync(x => x.ActiveStatus) : new List<Customer>();
             var suppliers = type == null || type == VirtualStockType.SupplierWarehouse ? await _supplierRepo.GetAllListAsync(x => x.ActiveStatus) : new List<Supplier>();
+            var stockPointWarehouses = type == null || type == VirtualStockType.StockPointWarehouse ? await _stockPointRepo.GetAllListAsync(x => x.ActiveStatus && x.StockPointType == StockPointType.Warehouse) : new List<StockPoint>();
 
             var virtualStocks = new List<VirtualStock>();
             virtualStocks = await _virtualStockRepo.GetAllListAsync(x => x.Date.Date == date.Date && (type == null || x.VirtualStockType == type));
@@ -373,6 +374,39 @@ namespace LbI.VirtualStocks
                 outputDetails.Add(stock);
             }
 
+            foreach (var sp in stockPointWarehouses)
+            {
+                var virtualStockId = virtualStocks.OrderByDescending(o => o.Date).FirstOrDefault(f => f.ClientId == sp.Id && f.VirtualStockType == VirtualStockType.StockPointWarehouse)?.Id;
+                var details = virtualStockDetails.Where(x => x.VirtualStockId == virtualStockId).ToList();
+                var stock = new GeneralStockDetailsDto()
+                {
+                    WarehouseId = sp.Id,
+                    WarehouseName = sp.Name,
+                    VirtualStockType = VirtualStockType.StockPointWarehouse
+                };
+
+                var thisOverallStocks = overallStocks.Where(x => x.WarehouseId == sp.Id && x.VirtualStockType == VirtualStockType.StockPointWarehouse && x.Date.Date < date.Date && x.StockQty > 0).ToList();
+
+                stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
+                if (stock.Oxygen136 == 0)
+                    stock.Oxygen136 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen136Id)?.StockQty ?? 0;
+
+                stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
+                if (stock.Oxygen98 == 0)
+                    stock.Oxygen98 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen98Id)?.StockQty ?? 0;
+
+                stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
+                if (stock.MedicalAir == 0)
+                    stock.MedicalAir = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == medicalAirId)?.StockQty ?? 0;
+
+                stock.NitrousOxide = details.FirstOrDefault(f => f.ProductId == nitrousId)?.StockQty ?? 0;
+                if (stock.NitrousOxide == 0)
+                    stock.NitrousOxide = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == nitrousId)?.StockQty ?? 0;
+
+                stock.Total = stock.Oxygen136 + stock.Oxygen98 + stock.MedicalAir + stock.NitrousOxide;
+                outputDetails.Add(stock);
+            }
+
             output = outputDetails.GroupBy(t => 1).Select(g => new GeneralStockOutputDto()
             {
                 Oxygen136Total = g.Sum(s => s.Oxygen136),
@@ -429,6 +463,31 @@ namespace LbI.VirtualStocks
         public List<ComboboxItemDto> GetStockTypesSelectListAsync()
         {
             return ((VirtualStockType[])Enum.GetValues(typeof(VirtualStockType))).Select(c => new ComboboxItemDto() { Value = ((int)c).ToString(), DisplayText = c.DisplayName() }).ToList();
+        }
+
+        public async Task<List<PlantWarehouseSelectListDto>> GetPlantWarehouseAsync()
+        {
+            var output = (await _supplierRepo.GetAllListAsync(x => x.ActiveStatus)).Select(s => new PlantWarehouseSelectListDto()
+            {
+                Id = s.Id,
+                DisplayText = s.Name,
+                VirtualStockType = VirtualStockType.SupplierWarehouse
+            }).ToList();
+
+            output.AddRange((await _stockPointRepo.GetAllListAsync(x => x.ActiveStatus && x.StockPointType == StockPointType.Warehouse)).Select(s => new PlantWarehouseSelectListDto()
+            {
+                Id = s.Id,
+                DisplayText = s.Name,
+                VirtualStockType = VirtualStockType.StockPointWarehouse
+            }).ToList());
+
+            return output.Select((item, index) => new PlantWarehouseSelectListDto
+            {
+                Uid = index + 1,
+                Id = item.Id,
+                DisplayText = item.DisplayText,
+                VirtualStockType = item.VirtualStockType
+            }).ToList();
         }
     }
 }

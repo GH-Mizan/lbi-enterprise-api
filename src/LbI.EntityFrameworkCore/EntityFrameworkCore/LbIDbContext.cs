@@ -42,4 +42,6 @@ public class LbIDbContext : AbpZeroDbContext<Tenant, Role, User, LbIDbContext>
     public DbSet<VirtualStock> VirtualStocks { get; set; }
     public DbSet<VirtualStockDetail> VirtualStockDetails { get; set; }
 
+    public DbSet<SalesOrder> SalesOrders { get; set; }
+
 }

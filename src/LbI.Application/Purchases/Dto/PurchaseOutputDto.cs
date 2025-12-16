@@ -24,5 +24,6 @@ namespace LbI.Purchases.Dto
         public string Remarks { get; set; }
         public string PaymentHistory { get; set; }
         public bool Locked { get; set; }
+        public string UserName { get; set; }
     }
 }

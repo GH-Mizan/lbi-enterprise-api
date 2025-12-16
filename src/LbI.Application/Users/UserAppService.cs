@@ -75,7 +75,25 @@ public class UserAppService : AsyncCrudAppService<User, UserDto, long, PagedUser
         return MapToEntityDto(user);
     }
 
-    public override async Task<UserDto> UpdateAsync(UserDto input)
+    //public override async Task<UserDto> UpdateAsync(UserDto input)
+    //{
+    //    CheckUpdatePermission();
+
+    //    var user = await _userManager.GetUserByIdAsync(input.Id);
+
+    //    MapToEntity(input, user);
+
+    //    CheckErrors(await _userManager.UpdateAsync(user));
+
+    //    if (input.RoleNames != null)
+    //    {
+    //        CheckErrors(await _userManager.SetRolesAsync(user, input.RoleNames));
+    //    }
+
+    //    return await GetAsync(input);
+    //}
+
+    public async Task<UserDto> UserUpdateAsync(UserDto input)
     {
         CheckUpdatePermission();
 
@@ -93,7 +111,13 @@ public class UserAppService : AsyncCrudAppService<User, UserDto, long, PagedUser
         return await GetAsync(input);
     }
 
-    public override async Task DeleteAsync(EntityDto<long> input)
+    //public override async Task DeleteAsync(EntityDto<long> input)
+    //{
+    //    var user = await _userManager.GetUserByIdAsync(input.Id);
+    //    await _userManager.DeleteAsync(user);
+    //}
+
+    public async Task UserRemoveAsync(EntityDto<long> input)
     {
         var user = await _userManager.GetUserByIdAsync(input.Id);
         await _userManager.DeleteAsync(user);

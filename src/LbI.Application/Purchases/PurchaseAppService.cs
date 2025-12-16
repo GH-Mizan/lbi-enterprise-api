@@ -3,6 +3,7 @@ using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
 using Abp.UI;
+using LbI.Authorization.Users;
 using LbI.Entities;
 using LbI.Enums;
 using LbI.Helpers;
@@ -26,6 +27,7 @@ namespace LbI.Purchases
         private readonly IRepository<StockPoint> _vehicleRepo;
         private readonly IRepository<Supplier> _supplierRepo;
         private readonly IRepository<Employee> _employeeRepo;
+        private readonly IRepository<User, long> _userRepository;
 
         public PurchaseAppService(
             IRepository<Purchase> purchaseRepo,
@@ -35,7 +37,8 @@ namespace LbI.Purchases
             IRepository<StockPoint> vehicleRepo,
             IRepository<DuePaymentHistory> duePaymentHistoryRepo,
             IRepository<Supplier> supplierRepo,
-            IRepository<Employee> employeeRepo
+            IRepository<Employee> employeeRepo,
+            IRepository<User, long> userRepository
             )
         {
             _purchaseRepo = purchaseRepo;
@@ -46,6 +49,7 @@ namespace LbI.Purchases
             _duePaymentHistoryRepo = duePaymentHistoryRepo;
             _supplierRepo = supplierRepo;
             _employeeRepo = employeeRepo;
+            _userRepository = userRepository;
         }
 
         public async Task<PagedResultDto<PurchaseOutputDto>> GetPaginatedPurchasesAsync(PurchasesFilterDto filter)
@@ -54,6 +58,8 @@ namespace LbI.Purchases
             var query = (from p in await _purchaseRepo.GetAllAsync()
                          join s in await _supplierRepo.GetAllAsync() on p.SupplierId equals s.Id
                          join v in await _vehicleRepo.GetAllAsync() on p.StockPointId equals v.Id
+                         join u in await _userRepository.GetAllAsync() on p.CreatorUserId equals u.Id into users
+                         from u in users.DefaultIfEmpty()
                          where filter.Date == null || p.Date.Date == filter.Date.Value.Date
                          select new PurchaseOutputDto()
                          {
@@ -72,7 +78,8 @@ namespace LbI.Purchases
                              StockPointId = p.StockPointId,
                              StockPointName = v.Name,
                              Remarks = p.Remarks,
-                             Locked = p.Locked
+                             Locked = p.Locked,
+                             UserName = u.FullName
                          }).AsQueryable();
 
             if (searchText != null)
@@ -193,7 +200,7 @@ namespace LbI.Purchases
                 purchase.PaidAmount += input.TotalPaid;
                 purchase.DueAmount = input.Due;
                 purchase.Remarks = input.Remarks;
-                purchase.PaymentStatus = purchase.DueAmount == 0 ? PaymentStatus.Paid : purchase.TotalAmount > purchase.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
+                purchase.PaymentStatus = purchase.DueAmount == 0 ? PaymentStatus.Paid : purchase.NetAmount > purchase.DueAmount ? PaymentStatus.Partialpaid : PaymentStatus.Due;
                 await _purchaseRepo.UpdateAsync(purchase);
                 await InsertDuePaymentAsync(input.DuePayment);
             }
@@ -226,8 +233,29 @@ namespace LbI.Purchases
 
         public async Task<List<DuePaymentHistoryDto>> GetDuePaymentHistoriesAsync(int purchaseId)
         {
-            var histories = (await _duePaymentHistoryRepo.GetAllListAsync(x => x.PurchaseId == purchaseId)).OrderBy(o=>o.CreationTime).ToList();
-            return ObjectMapper.Map<List<DuePaymentHistoryDto>>(histories);
+            var histories = (from d in await _duePaymentHistoryRepo.GetAllAsync()
+                             join u in await _userRepository.GetAllAsync() on d.CreatorUserId equals u.Id into users
+                             from u in users.DefaultIfEmpty()
+                             where d.PurchaseId == purchaseId
+                             select new DuePaymentHistoryDto()
+                             {
+                                 Id = d.Id,
+                                 PurchaseId = d.PurchaseId,
+                                 CreationTime = d.CreationTime,
+                                 InvoiceDate = d.InvoiceDate,
+                                 PaymentDate = d.PaymentDate,
+                                 InvoiceNumber = d.InvoiceNumber,
+                                 PaymentStatus = d.PaymentStatus,
+                                 GrandTotal = d.GrandTotal,
+                                 Discount = d.Discount,
+                                 NetTotal = d.NetTotal,
+                                 TotalPaid = d.TotalPaid,
+                                 Due = d.Due,
+                                 Default = d.Default,
+                                 Remarks = d.Remarks,
+                                 UserName = u.FullName
+                             }).OrderBy(o => o.CreationTime).ToList();
+            return histories;
         }
 
         private async Task InsertPurchaseDetails(List<PurchaseDetailsEntryDto> purchaseDetailsInput, int purchaseId, int vehicleId)
@@ -365,28 +393,28 @@ namespace LbI.Purchases
                 details.Add(item);
             }
 
-            var supplierIds = details.Select(x => x.SupplierId).ToList();
-            if (supplierIds.Count > supplierIds.Distinct().Count())
-            {
-                details = details.GroupBy(t => t.SupplierId).Select(g => new DailyPurchaseReportDetailsDto()
-                {
-                    SupplierId = g.Key,
-                    SupplierName = g.First().SupplierName,
-                    InvoiceNo = g.First().InvoiceNo,
-                    PaymentStatus = g.First().PaymentStatus,
-                    PaymentStatusText = g.First().PaymentStatusText,
-                    NetAmount = g.Sum(t => t.NetAmount),
-                    PaidAmount = g.Sum(t => t.PaidAmount),
-                    DueAmount = g.Sum(t => t.DueAmount),
-                    MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
-                    MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
-                    MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
-                    MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
-                    Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
-                    Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
-                    Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
-                }).ToList();
-            }
+            //var supplierIds = details.Select(x => x.SupplierId).ToList();
+            //if (supplierIds.Count > supplierIds.Distinct().Count())
+            //{
+            //    details = details.GroupBy(t => t.SupplierId).Select(g => new DailyPurchaseReportDetailsDto()
+            //    {
+            //        SupplierId = g.Key,
+            //        SupplierName = g.First().SupplierName,
+            //        InvoiceNo = g.First().InvoiceNo,
+            //        PaymentStatus = g.First().PaymentStatus,
+            //        PaymentStatusText = g.First().PaymentStatusText,
+            //        NetAmount = g.Sum(t => t.NetAmount),
+            //        PaidAmount = g.Sum(t => t.PaidAmount),
+            //        DueAmount = g.Sum(t => t.DueAmount),
+            //        MedicalOxygen9_8Qty = g.Sum(t => t.MedicalOxygen9_8Qty),
+            //        MedicalOxygen1_36Qty = g.Sum(t => t.MedicalOxygen1_36Qty),
+            //        MedicalAir9_8Qty = g.Sum(t => t.MedicalAir9_8Qty),
+            //        MedicalAir7Qty = g.Sum(t => t.MedicalAir7Qty),
+            //        Nitros30KgQty = g.Sum(t => t.Nitros30KgQty),
+            //        Nitros5KgQty = g.Sum(t => t.Nitros5KgQty),
+            //        Nitros3KgQty = g.Sum(t => t.Nitros3KgQty),
+            //    }).ToList();
+            //}
 
             foreach (var h in histories)
             {
@@ -477,9 +505,16 @@ namespace LbI.Purchases
                                     Amount = pd.TotalPrice
                                 }).ToList();
 
+            var duePaymentBreakdown = (await _duePaymentHistoryRepo.GetAllAsync()).Where(x => x.PurchaseId == purchaaseId && x.TotalPaid > 0).Select(s => new DuePaymentBreakdownDto()
+            {
+                PaymentDate = s.PaymentDate,
+                Amount = s.TotalPaid
+            }).OrderBy(o => o.PaymentDate).ToList();
+
             output.Details = purchaseDetails;
             output.PreviousDue = (await _purchaseRepo.GetAllAsync()).Where(s => s.Id < purchaaseId && s.DueAmount > 0 && s.SupplierId == output.SupplierId).Sum(s => s.DueAmount);
             output.OverallDue = output.PreviousDue + output.TotalDue;
+            output.PaymentBreakdown = duePaymentBreakdown;
 
             return output;
         }
