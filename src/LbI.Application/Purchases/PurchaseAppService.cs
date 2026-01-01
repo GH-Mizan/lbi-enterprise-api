@@ -21,6 +21,8 @@ namespace LbI.Purchases
     {
         private readonly IRepository<Purchase> _purchaseRepo;
         private readonly IRepository<PurchaseDetail> _purchaseDetailsRepo;
+        private readonly IRepository<Sale> _salesRepo;
+        private readonly IRepository<SaleDetail> _salesDetailsRepo;
         private readonly IRepository<DuePaymentHistory> _duePaymentHistoryRepo;
         private readonly IRepository<Inventory> _inventoryRepo;
         private readonly IRepository<Product> _productRepo;
@@ -32,6 +34,8 @@ namespace LbI.Purchases
         public PurchaseAppService(
             IRepository<Purchase> purchaseRepo,
             IRepository<PurchaseDetail> purchaseDetailsRepo,
+            IRepository<Sale> salesRepo,
+            IRepository<SaleDetail> salesDetailsRepo,
             IRepository<Inventory> inventoryRepo,
             IRepository<Product> productRepo,
             IRepository<StockPoint> vehicleRepo,
@@ -43,6 +47,8 @@ namespace LbI.Purchases
         {
             _purchaseRepo = purchaseRepo;
             _purchaseDetailsRepo = purchaseDetailsRepo;
+            _salesRepo = salesRepo;
+            _salesDetailsRepo = salesDetailsRepo;
             _inventoryRepo = inventoryRepo;
             _productRepo = productRepo;
             _vehicleRepo = vehicleRepo;
@@ -602,6 +608,49 @@ namespace LbI.Purchases
                 throw new UserFriendlyException(ex.Message);
             }
             
+        }
+
+        public async Task<List<BuyAndSalesDifferenceDto>> GetBuyAndSalesDifferenceAsync(int month, int year, DateTime? date)
+        {
+            var purchaseIds = new List<int>();
+            var saleIds = new List<int>();
+            if (date.HasValue)
+            {
+                purchaseIds = (await _purchaseRepo.GetAllAsync()).Where(x => x.Date.Date == date.Value.Date).Select(s => s.Id).ToList();
+                saleIds = (await _salesRepo.GetAllAsync()).Where(x => x.Date.Date == date.Value.Date).Select(s => s.Id).ToList();
+            }
+            else
+            {
+                purchaseIds = (await _purchaseRepo.GetAllAsync()).Where(x => (month == -1 || x.Date.Month == month) && (year == -1 || x.Date.Year == year)).Select(s => s.Id).ToList();
+                saleIds = (await _salesRepo.GetAllAsync()).Where(x => (month == -1 || x.Date.Month == month) && (year == -1 || x.Date.Year == year)).Select(s => s.Id).ToList();
+            }
+
+            var purchaseDetails = (await _purchaseDetailsRepo.GetAllAsync()).Where(x => purchaseIds.Contains(x.PurchaseId)).GroupBy(t => t.ProductId).Select(s => new
+            {
+                ProductId = s.Key,
+                Quantity = s.Sum(x => x.Quantity)
+            }).ToList();
+
+            var salesDetails = (await _salesDetailsRepo.GetAllAsync()).Where(x => saleIds.Contains(x.SaleId)).GroupBy(t => t.ProductId).Select(s => new
+            {
+                ProductId = s.Key,
+                Quantity = s.Sum(x => x.Quantity)
+            }).ToList();
+
+            var output = (await _productRepo.GetAllAsync()).Select(s => new BuyAndSalesDifferenceDto()
+            {
+                ProductId = s.Id,
+                ProductName = s.Name
+            }).ToList();
+
+            foreach(var item in output)
+            {
+                item.Purchase = purchaseDetails.FirstOrDefault(f=> f.ProductId == item.ProductId)?.Quantity ?? 0;
+                item.Sales = salesDetails.FirstOrDefault(f => f.ProductId == item.ProductId)?.Quantity ?? 0;
+                item.Difference = item.Purchase - item.Sales;
+            }
+
+            return output;
         }
     }
 }

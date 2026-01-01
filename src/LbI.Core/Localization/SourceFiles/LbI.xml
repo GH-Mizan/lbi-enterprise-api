@@ -141,5 +141,8 @@
 	<text name="ClientsBalanceReport">Clients Balance Report</text>
 	<text name="MonthlySalesRankingReport">Monthly Sales Ranking Report</text>
 	<text name="SalesInvoiceReport">Sales Invoice Report</text>
+    <text name="BuySaleDiff">Purchase And Sale Difference</text>
+	  <text name="Salary">Salary</text>
+	  <text name="SalaryAdvance">Salary Advance</text>
   </texts>
 </localizationDictionary>

@@ -24,6 +24,8 @@ public class LbIAuthorizationProvider : AuthorizationProvider
         context.CreatePermission(PermissionNames.Pages_Department_Edit, L("DepartmentEdit"));
         context.CreatePermission(PermissionNames.Pages_Designation_Edit, L("DesignationEdit"));
         context.CreatePermission(PermissionNames.Pages_StockPoint_Edit, L("StockPointEdit"));
+        context.CreatePermission(PermissionNames.Pages_Salary, L("Salary"));
+        context.CreatePermission(PermissionNames.Pages_SalaryAdvance, L("SalaryAdvance"));
 
         context.CreatePermission(PermissionNames.Reports_SaleCollectionDueReport, L("SaleCollectionDueReport"));
         context.CreatePermission(PermissionNames.Reports_DailyPurchaseReport, L("DailyPurchaseReport"));
@@ -33,6 +35,7 @@ public class LbIAuthorizationProvider : AuthorizationProvider
         context.CreatePermission(PermissionNames.Reports_ClientsBalanceReport, L("ClientsBalanceReport"));
         context.CreatePermission(PermissionNames.Reports_MonthlySalesRankingReport, L("MonthlySalesRankingReport"));
         context.CreatePermission(PermissionNames.Reports_SalesInvoiceReport, L("SalesInvoiceReport"));
+        context.CreatePermission(PermissionNames.Reports_BuySaleDiff, L("BuySaleDiff"));
     }
 
     private static ILocalizableString L(string name)

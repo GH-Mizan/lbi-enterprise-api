@@ -4,6 +4,7 @@ using LbI.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LbI.Migrations
 {
     [DbContext(typeof(LbIDbContext))]
-    partial class LbIDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251216151517_Salary_Added")]
+    partial class Salary_Added
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2431,9 +2434,6 @@ namespace LbI.Migrations
                     b.Property<long?>("CreatorUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("datetime2");
-
                     b.Property<long?>("DeleterUserId")
                         .HasColumnType("bigint");
 
@@ -2442,9 +2442,6 @@ namespace LbI.Migrations
 
                     b.Property<int>("EmployeeId")
                         .HasColumnType("int");
-
-                    b.Property<bool>("FullPaid")
-                        .HasColumnType("bit");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
@@ -2458,14 +2455,8 @@ namespace LbI.Migrations
                     b.Property<int>("Month")
                         .HasColumnType("int");
 
-                    b.Property<int>("Payable")
-                        .HasColumnType("int");
-
                     b.Property<string>("Remarks")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("WorkingDays")
-                        .HasColumnType("decimal(18,2)");
 
                     b.Property<int>("Year")
                         .HasColumnType("int");
@@ -2519,10 +2510,7 @@ namespace LbI.Migrations
                     b.Property<long?>("LastModifierUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("LoanFromCompany")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LoanToCompany")
+                    b.Property<int>("Loan")
                         .HasColumnType("int");
 
                     b.Property<int>("PreviousSalary")
@@ -2580,10 +2568,7 @@ namespace LbI.Migrations
                     b.Property<long?>("LastModifierUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<int>("LoanFromCompany")
-                        .HasColumnType("int");
-
-                    b.Property<int>("LoanToCompany")
+                    b.Property<int>("Loan")
                         .HasColumnType("int");
 
                     b.Property<int>("PreviousSalary")

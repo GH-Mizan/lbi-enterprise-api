@@ -20,6 +20,8 @@ public static class PermissionNames
     public const string Pages_Department_Edit = "Pages.Department.Edit";
     public const string Pages_Designation_Edit = "Pages.Designation.Edit";
     public const string Pages_StockPoint_Edit = "Pages.StockPoint.Edit";
+    public const string Pages_Salary = "Pages.Salary";
+    public const string Pages_SalaryAdvance = "Pages.SalaryAdvance";
 
     public const string Reports_SaleCollectionDueReport = "Reports.SaleCollectionDue";
     public const string Reports_DailyPurchaseReport = "Reports.DailyPurchase";
@@ -29,4 +31,7 @@ public static class PermissionNames
     public const string Reports_ClientsBalanceReport = "Reports.ClientsBalance";
     public const string Reports_MonthlySalesRankingReport = "Reports.MonthlySalesRanking";
     public const string Reports_SalesInvoiceReport = "Reports.SalesInvoice";
+    public const string Reports_BuySaleDiff = "Reports.BuySaleDiff";
+
+    
 }
