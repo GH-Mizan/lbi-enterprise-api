@@ -1,15 +1,13 @@
 ﻿using Abp.Application.Services.Dto;
-using Abp.Domain.Entities;
 using Abp.Domain.Repositories;
+using Abp.Domain.Uow;
 using Abp.EntityFrameworkCore.Repositories;
-using LbI.Customers.Dto;
 using LbI.DailyCashes.Dto;
 using LbI.Entities;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace LbI.DailyCashes
@@ -17,10 +15,13 @@ namespace LbI.DailyCashes
     public class DailyCashAppService : LbIAppServiceBase, IDailyCashAppService
     {
         private readonly IRepository<DailyCash> _dailyCashRepo;
+        private readonly IRepository<Voucher> _voucherRepository;
         public DailyCashAppService(
-            IRepository<DailyCash> dailyCashRepo)
+            IRepository<DailyCash> dailyCashRepo,
+            IRepository<Voucher> voucherRepository)
         {
             _dailyCashRepo = dailyCashRepo;
+            _voucherRepository = voucherRepository;
         }
 
         public async Task<PagedResultDto<DailyCashOutputDto>> GetPaginatedDailyCashAsync(DailyCashFilterDto filter)
@@ -103,6 +104,71 @@ namespace LbI.DailyCashes
             {
                 var dailyCash = ObjectMapper.Map<DailyCash>(input.DailyCashInfo);
                 return await _dailyCashRepo.InsertAndGetIdAsync(dailyCash);
+            }
+        }
+
+        [UnitOfWork]
+        public async Task CreateOrUpdateVoucherAsync(DateTime date, List<VoucherEntryDto> input)
+        {
+            
+            await VouchersRemoveByDateAsync(date);
+
+            foreach (var item in input)
+            {
+                await _voucherRepository.InsertAsync(
+                    new Voucher()
+                    {
+                        Date = item.Date,
+                        VoucherNumber = item.VoucherNumber,
+                        Creator = item.Creator,
+                        CarNumber = item.CarNumber,
+                        TotalAmount = item.TotalAmount,
+                        IncomeRecords = item.IncomeRecords,
+                        ExpenseRecords = item.ExpenseRecords
+                    });
+            }
+        }
+
+        public async Task<VouchersOutputDto> GetVouchersAsync(DateTime date)
+        {
+            var output = new VouchersOutputDto()
+            {
+                Vouchers = (await _voucherRepository.GetAllListAsync(f => f.Date.Date == date.Date)).Select(s => new VoucherOutputDto()
+                {
+                    Id = s.Id,
+                    Date = date,
+                    VoucherNumber = s.VoucherNumber,
+                    Creator = s.Creator,
+                    CarNumber = s.CarNumber,
+                    TotalAmount = s.TotalAmount,
+                    IncomeRecords = s.IncomeRecords,
+                    ExpenseRecords = s.ExpenseRecords
+                }).ToList(),
+                IsAny = await _voucherRepository.CountAsync() > 0
+            };
+            if(output.Vouchers.Count > 0)
+            {
+                if (!(await _voucherRepository.CountAsync(x=> x.Date.Date > date.Date) > 0))
+                    output.MostRecennt = true;
+            }
+            return output;
+        }
+
+        public async Task<VoucherFirstLastDateDto> GetVoucherFirstLastDateAsync()
+        {
+            var lastDate = (await _voucherRepository.GetAllAsync()).OrderByDescending(o => o.Date).FirstOrDefault()?.Date;
+            return new VoucherFirstLastDateDto()
+            {
+                FirstDate = (await _voucherRepository.GetAllAsync()).OrderBy(o => o.Date).FirstOrDefault()?.Date,
+                CurrentDate = lastDate == null ? DateTime.UtcNow : lastDate.Value.AddDays(1)
+            };
+        }
+
+        public async Task VouchersRemoveByDateAsync(DateTime date)
+        {
+            if (await _voucherRepository.CountAsync(x => x.Date.Date == date.Date) > 0)
+            {
+                await _voucherRepository.BatchDeleteAsync(x => x.Date.Date == date.Date);
             }
         }
     }

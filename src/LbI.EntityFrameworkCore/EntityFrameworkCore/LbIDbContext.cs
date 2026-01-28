@@ -44,8 +44,10 @@ public class LbIDbContext : AbpZeroDbContext<Tenant, Role, User, LbIDbContext>
 
     public DbSet<SalesOrder> SalesOrders { get; set; }
 
-    public DbSet<Salary> Salarys { get; set; }
+    public DbSet<Salary> Salaries { get; set; }
     public DbSet<SalaryAdvance> SalaryAdvances { get; set; }
     public DbSet<SalaryAdvanceHistory> SalaryAdvanceHistories { get; set; }
+    public DbSet<AccountHead> AccountHeads { get; set; }
+    public DbSet<Voucher> Vouchers { get; set; }
 
 }
