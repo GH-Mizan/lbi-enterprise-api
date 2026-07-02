@@ -4,6 +4,7 @@ using LbI.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LbI.Migrations
 {
     [DbContext(typeof(LbIDbContext))]
-    partial class LbIDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260511095108_Remove_TenantId")]
+    partial class Remove_TenantId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1793,15 +1796,6 @@ namespace LbI.Migrations
                     b.Property<decimal>("ActualBalance")
                         .HasColumnType("decimal(10, 2)");
 
-                    b.Property<decimal>("ActualDifference")
-                        .HasColumnType("decimal(10, 2)");
-
-                    b.Property<decimal>("BalanceCD")
-                        .HasColumnType("decimal(10, 2)");
-
-                    b.Property<bool>("Completed")
-                        .HasColumnType("bit");
-
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("datetime2");
 
@@ -1839,9 +1833,6 @@ namespace LbI.Migrations
                         .HasColumnType("decimal(10, 2)");
 
                     b.Property<decimal>("TotalDayEndCash")
-                        .HasColumnType("decimal(10, 2)");
-
-                    b.Property<decimal>("TotalDue")
                         .HasColumnType("decimal(10, 2)");
 
                     b.Property<decimal>("TotalExpense")
@@ -1899,9 +1890,6 @@ namespace LbI.Migrations
                     b.Property<string>("Type")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("Uid")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
 
                     b.ToTable("DailyCashAdvanceDetails");
@@ -1948,13 +1936,7 @@ namespace LbI.Migrations
                     b.Property<long?>("LastModifierUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("MtmKey")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("Type")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Uid")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
@@ -2006,9 +1988,6 @@ namespace LbI.Migrations
                     b.Property<long?>("LastModifierUserId")
                         .HasColumnType("bigint");
 
-                    b.Property<string>("Uid")
-                        .HasColumnType("nvarchar(max)");
-
                     b.HasKey("Id");
 
                     b.ToTable("DailyCashExpenseDetails");
@@ -2057,12 +2036,6 @@ namespace LbI.Migrations
 
                     b.Property<long?>("LastModifierUserId")
                         .HasColumnType("bigint");
-
-                    b.Property<string>("MtmKey")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Uid")
-                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -3435,9 +3408,6 @@ namespace LbI.Migrations
 
                     b.Property<long?>("CreatorUserId")
                         .HasColumnType("bigint");
-
-                    b.Property<int>("DailyCashId")
-                        .HasColumnType("int");
 
                     b.Property<DateTime>("Date")
                         .HasColumnType("datetime2");

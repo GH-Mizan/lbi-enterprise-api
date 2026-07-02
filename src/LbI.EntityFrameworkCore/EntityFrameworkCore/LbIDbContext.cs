@@ -49,5 +49,11 @@ public class LbIDbContext : AbpZeroDbContext<Tenant, Role, User, LbIDbContext>
     public DbSet<SalaryAdvanceHistory> SalaryAdvanceHistories { get; set; }
     public DbSet<AccountHead> AccountHeads { get; set; }
     public DbSet<Voucher> Vouchers { get; set; }
+    public DbSet<AdditionalPartiesAdvance> AdditionalPartiesAdvances { get; set; }
+
+    public DbSet<DailyCashIncomeDetail> DailyCashIncomeDetails { get; set; }
+    public DbSet<DailyCashExpenseDetail> DailyCashExpenseDetails { get; set; }
+    public DbSet<DailyCashAdvanceDetail> DailyCashAdvanceDetails { get; set; }
+    public DbSet<DailyCashDayEndDetail> DailyCashDayEndDetails { get; set; }
 
 }

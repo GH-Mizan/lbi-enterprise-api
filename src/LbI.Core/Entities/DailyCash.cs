@@ -1,4 +1,5 @@
-﻿using Abp.Domain.Entities.Auditing;
+﻿using Abp.Domain.Entities;
+using Abp.Domain.Entities.Auditing;
 using System;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -8,21 +9,26 @@ namespace LbI.Entities
     {
         public DateTime Date { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
-        public  decimal TotalActualIncome{ get; set; }
-        [Column(TypeName = "decimal(10, 2)")]
-        public decimal TotalVirtualTransaction { get; set; }
+        public  decimal TotalIncome{ get; set; }
         [Column(TypeName = "decimal(10, 2)")]
         public decimal TotalExpense { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
-        public decimal DayStartCashBalance { get; set; }
+        public decimal TotalAdvance { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
-        public decimal DayStartAdvanceBalance { get; set; }
+        public decimal TotalDayEndCash { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
-        public decimal DayEndCashBalance { get; set; }
+        public decimal PaperBalance { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
-        public decimal DayEndAdvanceBalance { get; set; }
+        public decimal ActualBalance { get; set; }
         [Column(TypeName = "decimal(10, 2)")]
         public decimal Difference { get; set; }
-        public string Metadata { get; set; }
+        [Column(TypeName = "decimal(10, 2)")]
+        public decimal TotalDue { get; set; }
+        [Column(TypeName = "decimal(10, 2)")]
+        public decimal BalanceCD { get; set; }
+        [Column(TypeName = "decimal(10, 2)")]
+        public decimal ActualDifference { get; set; }
+        public bool Completed { get; set; }
+        public string Remarks { get; set; }
     }
 }

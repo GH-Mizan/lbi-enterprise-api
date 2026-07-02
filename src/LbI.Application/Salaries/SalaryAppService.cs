@@ -1,6 +1,7 @@
 ﻿using Abp.Application.Services.Dto;
 using Abp.Domain.Repositories;
 using Abp.Domain.Uow;
+using LbI.AdditionalParties.Dto;
 using LbI.Entities;
 using LbI.Salaries.Dto;
 using System;
@@ -19,38 +20,55 @@ namespace LbI.Salaries
         private readonly IRepository<SalaryAdvance> _salaryAdvanceRepository;
         private readonly IRepository<SalaryAdvanceHistory> _salaryAdvanceHistoryRepository;
         private readonly IRepository<Employee> _employeeRepository;
+        private readonly IRepository<AdditionalPartiesAdvance> _additionalPartiesAdvanceRepository;
         public SalaryAppService(
             IRepository<Salary> salaryRepository,
             IRepository<SalaryAdvance> salaryAdvanceRepository,
             IRepository<SalaryAdvanceHistory> salaryAdvanceHistoryRepository,
-            IRepository<Employee> employeeRepository
+            IRepository<Employee> employeeRepository,
+            IRepository<AdditionalPartiesAdvance> additionalPartiesAdvanceRepository
             )
         {
             _salaryRepository = salaryRepository;
             _salaryAdvanceRepository = salaryAdvanceRepository;
             _salaryAdvanceHistoryRepository = salaryAdvanceHistoryRepository;
             _employeeRepository = employeeRepository;
+            _additionalPartiesAdvanceRepository = additionalPartiesAdvanceRepository;
         }
 
-        public async Task<List<SalaryAdvanceDto>> GetSalaryAdvanceListAsync()
+        public async Task<SalaryAdvanceOutputDto> GetSalaryAdvanceListAsync()
         {
-            var output = (from e in await _employeeRepository.GetAllAsync()
-                          join sa in await _salaryAdvanceRepository.GetAllAsync() on e.Id equals sa.EmployeeId into advances
-                          from sa in advances.DefaultIfEmpty()
-                          where e.ActiveStatus
-                          select new SalaryAdvanceDto()
-                          {
-                              Id = sa.Id,
-                              EmployeeId = e.Id,
-                              EmployeeName = e.Name,
-                              PreviousSalary = sa == null ? 0 : sa.PreviousSalary,
-                              CurrentSalary = sa == null ? 0 : sa.CurrentSalary,
-                              Advance = sa == null ? 0 : sa.Advance,
-                              LoanFromCompany = sa == null ? 0 : sa.LoanToCompany,
-                              LoanToCompany = sa == null ? 0 : sa.LoanToCompany,
-                              IncrementDate = sa.IncrementDate,
-                              FromUi = true
-                          }).ToList();
+            var output = new SalaryAdvanceOutputDto()
+            {
+                Advances = (from e in await _employeeRepository.GetAllAsync()
+                            join sa in await _salaryAdvanceRepository.GetAllAsync() on e.Id equals sa.EmployeeId into advances
+                            from sa in advances.DefaultIfEmpty()
+                            where e.ActiveStatus
+                            select new SalaryAdvanceDto()
+                            {
+                                Id = sa.Id,
+                                EmployeeId = e.Id,
+                                EmployeeName = e.Name,
+                                PreviousSalary = sa == null ? 0 : sa.PreviousSalary,
+                                CurrentSalary = sa == null ? 0 : sa.CurrentSalary,
+                                Advance = sa == null ? 0 : sa.Advance,
+                                LoanFromCompany = sa == null ? 0 : sa.LoanToCompany,
+                                LoanToCompany = sa == null ? 0 : sa.LoanToCompany,
+                                IncrementDate = sa.IncrementDate,
+                                FromUi = true
+                            }).ToList(),
+                AdditionalParitesAdvances = (await _additionalPartiesAdvanceRepository.GetAllAsync()).Select(s=> new AdditionalPartyOutputDto()
+                {
+                    Id = s.Id,
+                    PartyName = s.PartyName,
+                    Advance = s.Advance
+                }).ToList()
+            };
+            output.TotalAdvance = output.Advances.Sum(s => s.Advance);
+            output.TotalLoan = output.Advances.Sum(s => s.LoanFromCompany);
+            output.TotalBorrowing = output.Advances.Sum(s => s.LoanToCompany);
+            output.TotalAdditionalPartiesAdvance = output.AdditionalParitesAdvances.Sum(s => s.Advance);
+
             return output;
         }
 

@@ -352,7 +352,7 @@ namespace LbI.VirtualStocks
                     VirtualStockType = VirtualStockType.SupplierWarehouse
                 };
 
-                var thisOverallStocks = overallStocks.Where(x => x.WarehouseId == supplier.Id && x.VirtualStockType == VirtualStockType.SupplierWarehouse && x.Date.Date < date.Date && x.StockQty > 0).ToList();
+                var thisOverallStocks = overallStocks.Where(x => x.WarehouseId == supplier.Id && x.VirtualStockType == VirtualStockType.SupplierWarehouse && x.Date.Date < date.Date).ToList();
 
                 stock.Oxygen136 = details.FirstOrDefault(f => f.ProductId == oxygen136Id)?.StockQty ?? 0;
                 if (stock.Oxygen136 == 0)
@@ -360,7 +360,11 @@ namespace LbI.VirtualStocks
 
                 stock.Oxygen98 = details.FirstOrDefault(f => f.ProductId == oxygen98Id)?.StockQty ?? 0;
                 if (stock.Oxygen98 == 0)
+                {
+                    //var a = thisOverallStocks.OrderByDescending(o => o.Date).ToList();
                     stock.Oxygen98 = thisOverallStocks.OrderByDescending(o => o.Date).FirstOrDefault(x => x.ProductId == oxygen98Id)?.StockQty ?? 0;
+                }
+                    
 
                 stock.MedicalAir = details.FirstOrDefault(f => f.ProductId == medicalAirId)?.StockQty ?? 0;
                 if (stock.MedicalAir == 0)

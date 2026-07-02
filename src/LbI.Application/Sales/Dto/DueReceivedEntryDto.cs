@@ -11,8 +11,8 @@ namespace LbI.Sales.Dto
         public string InvoiceNumber { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
         public string PaymentStatusText { get; set; }
-        public int CustomerId { get; set; }
-        public string CustomerName { get; set; }
+        public int ClientId { get; set; }
+        public string ClientName { get; set; }
         public string SalesBy { get; set; }
         public decimal GrandTotal { get; set; }
         public decimal PrevDiscount { get; set; }

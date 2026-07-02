@@ -52,14 +52,14 @@ namespace LbI.Departments
         {
             if (input.Id.HasValue)
             {
-                var cuatomer = await _departmentRepo.GetAsync(input.Id.Value);
-                ObjectMapper.Map(input, cuatomer);
-                await _departmentRepo.UpdateAsync(cuatomer);
+                var department = await _departmentRepo.GetAsync(input.Id.Value);
+                ObjectMapper.Map(input, department);
+                await _departmentRepo.UpdateAsync(department);
             }
             else
             {
-                var cuatomer = ObjectMapper.Map<Department>(input);
-                await _departmentRepo.InsertAsync(cuatomer);
+                var department = ObjectMapper.Map<Department>(input);
+                await _departmentRepo.InsertAsync(department);
             }
         }
 

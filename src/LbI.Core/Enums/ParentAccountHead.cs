@@ -17,7 +17,9 @@ namespace LbI.Enums
         [Description("Cylinder Preparation Expense")]
         CylinderPreparationExpense, 
         [Description("Vehicle Expense")]
-        VehicleExpense
+        VehicleExpense,
+        [Description("Balance B/D")]
+        BalanceBD
 
     }
 }
